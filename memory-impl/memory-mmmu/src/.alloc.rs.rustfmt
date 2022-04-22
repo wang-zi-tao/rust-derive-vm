@@ -1,0 +1,271 @@
+use super::object::Object;
+
+use dashmap::{mapref::entry::Entry, DashMap};
+use failure::{format_err, Error};
+use jvm_core::TypeResource;
+use os::mem::{VirtualMemoryManager, VM};
+use std::{
+    any::Any,
+    cell::RefCell,
+    collections::HashMap,
+    convert::TryInto,
+    ptr::NonNull,
+    sync::{Arc, Mutex, RwLock, Weak},
+};
+use util::{CacheAlignedVec, CowArc};
+
+use super::heap::{HeapFrame, HeapPage, LocalHeap, SingleTypeHeap, HEAP_SEGMENT_SIZE, PAGES_PRE_SEGMENT};
+use crate::{
+    graph::RegistedType,
+    heap::{AllocationStrategy, SingleTypeHeapRef, GC_MASK},
+};
+#[derive(Fail, Debug)]
+pub enum AllocError {
+    #[fail(display = "no space left")]
+    NoSpaceLeft(),
+    #[fail(display = "other allocation error :{}", _0)]
+    OtherError(#[cause] Error),
+    #[fail(display = "heap frame allocation failed!")]
+    HeapFrameAllocFailed(),
+}
+use AllocError::*;
+impl From<Error> for AllocError {
+    fn from(e: Error) -> Self {
+        Self::OtherError(e)
+    }
+}
+pub type AllocResult<R> = Result<R, AllocError>;
+pub const VM_ALLOC_RETRY: usize = 64;
+#[derive(Default)]
+pub struct GlobalHeapFrameAllocator {}
+impl GlobalHeapFrameAllocator {
+    pub fn alloc(&self, tire: usize) -> AllocResult<HeapFrame> {
+        for i in 0..VM_ALLOC_RETRY {
+            let ret = self.try_alloc(tire);
+            match ret {
+                Ok(v) => return Ok(v),
+                Err(e) => log::warn!("heap frame allocation failed ,retry:{},message:\n{:#?}", VM_ALLOC_RETRY - i, e),
+            }
+        }
+        log::error!("heap frame allocation failed!");
+        Err(HeapFrameAllocFailed())
+    }
+
+    pub fn try_alloc(&self, tire: usize) -> AllocResult<HeapFrame> {
+        let vm = VM::alloc(HEAP_SEGMENT_SIZE * tire as usize)?;
+        let memory = VM::new(vm.as_ptr(), HEAP_SEGMENT_SIZE).create_shared_memory();
+        let mut mems = Vec::new(); // 实现错误时自动unmap
+        for m in 0..tire {
+            unsafe {
+                mems.push(memory.map(VM::new(vm.as_ptr().offset((HEAP_SEGMENT_SIZE * m as usize).try_into().unwrap()), HEAP_SEGMENT_SIZE))?);
+                mems.push(memory.map(VM::new(vm.as_ptr().offset((HEAP_SEGMENT_SIZE * m as usize + GC_MASK).try_into().unwrap()), HEAP_SEGMENT_SIZE))?);
+            }
+        }
+        for mem in mems {
+            mem.len();
+        }
+        Ok(HeapFrame::new(vm, tire))
+    }
+
+    pub fn alloc_multiple(&self, smallest_page_count: usize, tire: usize) -> AllocResult<Vec<HeapFrame>> {
+        let frame_count = usize::saturating_sub(smallest_page_count, 1) / PAGES_PRE_SEGMENT + 1;
+        let mut vec = Vec::with_capacity(frame_count);
+        for _ in 0..frame_count {
+            vec.push(self.alloc(tire)?);
+        }
+        Ok(vec)
+    }
+}
+#[derive(Default)]
+pub struct GlobalHeap {
+    pools: DashMap<Arc<RegistedType>, Arc<GlobalSingleTypeHeapPool>>,
+    heap_pages: DashMap<usize, Vec<Box<HeapPage>>>,
+    allocator: GlobalHeapFrameAllocator,
+}
+
+impl GlobalHeap {
+    pub fn get_global_single_type_heap(global_heap: &Arc<GlobalHeap>, ty: &RegistedType) -> AllocResult<Arc<GlobalSingleTypeHeapPool>> {
+        if let Some(pool) = global_heap.pools.get(ty) {
+            Ok(pool.clone())
+        } else {
+            let ty = ty.weak_self.upgrade().unwrap();
+            let pool = Arc::new(GlobalSingleTypeHeapPool::new(ty.clone(), global_heap.clone()));
+            global_heap.pools.insert(ty, pool.clone());
+            Ok(pool)
+        }
+    }
+
+    pub fn get_heap_pages(&self, count: usize, tire: usize) -> AllocResult<Vec<Box<HeapPage>>> {
+        let (alloc_count, mut vec) = if let Entry::Occupied(mut entity) = self.heap_pages.entry(tire) {
+            let cached = entity.get_mut();
+            let len = cached.len();
+            let split_off_count = usize::max(0, len - count);
+            (count - split_off_count, cached.split_off(split_off_count))
+        } else {
+            (count, Vec::with_capacity(count))
+        };
+        if alloc_count > 0 {
+            let frames = self.allocator.alloc_multiple(alloc_count, tire)?;
+            let len = frames.len();
+            let mut alloced_pages_iter = frames.into_iter().flat_map(|f| f.into_first_segment_pages());
+            if len > alloc_count {
+                match self.heap_pages.entry(tire) {
+                    Entry::Occupied(mut entry) => {
+                        let pages = entry.get_mut();
+                        let insert_len = len - alloc_count;
+                        for _ in 0..insert_len {
+                            pages.push(alloced_pages_iter.next().unwrap());
+                        }
+                    }
+                    Entry::Vacant(entry) => {
+                        let insert_len = len - alloc_count;
+                        let mut needless = Vec::with_capacity(insert_len);
+                        for _ in 0..insert_len {
+                            needless.push(alloced_pages_iter.next().unwrap());
+                        }
+                        entry.insert(needless);
+                    }
+                }
+            }
+            vec.extend(alloced_pages_iter);
+        }
+        Ok(vec)
+    }
+}
+pub struct GlobalSingleTypeHeapPool {
+    ty: Arc<RegistedType>,
+    heaps: Mutex<(Vec<SingleTypeHeapRef>, Vec<SingleTypeHeapRef>)>,
+    global_heap: Arc<GlobalHeap>,
+}
+pub struct LargeHeap {
+    emptys: Vec<NonNull<[u8]>>,
+    allocable: Vec<NonNull<[u8]>>,
+    full: Vec<NonNull<[u8]>>,
+}
+unsafe impl Send for GlobalSingleTypeHeapPool {}
+unsafe impl Sync for GlobalSingleTypeHeapPool {}
+impl GlobalSingleTypeHeapPool {
+    pub fn new(ty: Arc<RegistedType>, global_heap: Arc<GlobalHeap>) -> Self {
+        Self { ty, global_heap, heaps: Mutex::new((Vec::new(), Vec::new())) }
+    }
+
+    pub fn new_local(global: Arc<GlobalSingleTypeHeapPool>) -> AllocResult<LocalSingleTypeHeapPool> {
+        let heaps = global.get(1);
+        Ok(LocalSingleTypeHeapPool::from_vec(heaps?, global))
+    }
+
+    pub fn get<'l>(&'l self, count: usize) -> AllocResult<Vec<SingleTypeHeapRef>> {
+        let mut guard = self.heaps.lock().map_err(|_e| format_err!("PoisonError"))?;
+        let free_page = &mut guard.0;
+        let available_count = free_page.len();
+        if available_count < count {
+            let layout = self.ty.get_layout()?;
+            free_page.extend(
+                self.global_heap
+                    .get_heap_pages(count - available_count, layout.tire())?
+                    .into_iter()
+                    .map(|p| NonNull::from(SingleTypeHeap::from_heap_page(p, &layout).as_mut())),
+            ); // TODO: 优化动态分配数量
+        }
+        let len = free_page.len();
+        // let mut used_page = & guard.1;
+        // used_page.extend(guard.0[..len-count].iter().cloned());
+        let result = free_page.split_off(len - count);
+        Ok(result)
+    }
+
+    fn alloc(&self, ty: &RegistedType) -> AllocResult<NonNull<u8>> {
+        todo!()
+    }
+}
+pub struct LocalHeapPool {
+    pools: HashMap<Arc<RegistedType>, LocalSingleTypeHeapPool>,
+    global_heap: Arc<GlobalHeap>,
+}
+impl LocalHeapPool {
+    fn get_single_type_memory_pools(&mut self, ty: &RegistedType) -> AllocResult<&mut LocalSingleTypeHeapPool> {
+        if !self.pools.contains_key(ty) {
+            let global_single_type_memory_pool = self.get_global_single_type_memory_pool(ty)?;
+            let pool = GlobalSingleTypeHeapPool::new_local(global_single_type_memory_pool)?;
+            self.pools.insert(ty.weak_self.upgrade().unwrap(), pool);
+        }
+        Ok(self.pools.get_mut(ty).unwrap())
+    }
+
+    fn get_global_single_type_memory_pool(&self, ty: &RegistedType) -> AllocResult<Arc<GlobalSingleTypeHeapPool>> {
+        GlobalHeap::get_global_single_type_heap(&self.global_heap, ty)
+    }
+
+    unsafe fn try_alloc<'a>(&mut self, ty: &Arc<RegistedType>) -> AllocResult<NonNull<u8>> {
+        let pools = self.get_single_type_memory_pools(ty)?;
+        let pool = pools.get_one_available()?;
+        if let Some(oop) = pool.alloc(&ty.get_layout()?) {
+            if pool.is_full() {
+                pools.mark_one_full();
+            }
+            return Ok(oop);
+        } else {
+            panic!();
+        }
+    }
+}
+pub struct LocalSingleTypeHeapPool {
+    available: CacheAlignedVec<SingleTypeHeapRef>,
+    full: Vec<NonNull<SingleTypeHeap>>,
+    global: Arc<GlobalSingleTypeHeapPool>,
+}
+impl LocalSingleTypeHeapPool {
+    pub fn from_vec(heaps: Vec<SingleTypeHeapRef>, global: Arc<GlobalSingleTypeHeapPool>) -> Self {
+        let mut available = CacheAlignedVec::<SingleTypeHeapRef>::new();
+        available.extend(heaps);
+        LocalSingleTypeHeapPool { available, full: Vec::new(), global }
+    }
+
+    pub unsafe fn get_one_available(&mut self) -> AllocResult<&mut SingleTypeHeap> {
+        if self.available.is_empty() {
+            let heaps = self.global.get(1 + self.full.len() >> 3)?; // TODO: 优化动态分配数量
+            self.available.extend(heaps);
+        }
+        Ok(self.available.last_mut().unwrap().as_mut())
+    }
+
+    pub fn mark_one_full(&mut self) {
+        let pool = self.available.pop().unwrap();
+        self.full.push(pool);
+    }
+}
+fn new_local_heap_pool() -> LocalHeapPool {
+    LocalHeapPool { global_heap: GLOBALH_EAP.clone(), pools: HashMap::new() }
+}
+fn new_global_heap() -> GlobalHeap {
+    GlobalHeap { pools: DashMap::new(), heap_pages: DashMap::new(), allocator: GlobalHeapFrameAllocator {} }
+}
+thread_local! {
+    static LOCAL_HEAP_POOL:RefCell<LocalHeapPool>=RefCell::new(new_local_heap_pool());
+}
+lazy_static! {
+    static ref GLOBALH_EAP: Arc<GlobalHeap> = Arc::new(new_global_heap());
+}
+pub fn try_alloc<'a>(ty: &RegistedType) -> AllocResult<NonNull<u8>> {
+    unsafe {
+        match ty.allocation_strategy.load() {
+            AllocationStrategy::Small | AllocationStrategy::SmallUnsized => LOCAL_HEAP_POOL.with(|this| {
+                let mut this = this.borrow_mut();
+                let pools = this.get_single_type_memory_pools(ty)?;
+                let pool = pools.get_one_available()?;
+                if let Some(oop) = pool.alloc(&ty.get_layout()?) {
+                    if pool.is_full() {
+                        pools.mark_one_full();
+                    }
+                    Ok(oop)
+                } else {
+                    Err(NoSpaceLeft())
+                }
+            }),
+            AllocationStrategy::Large => {
+                let pool = &ty.heap;
+                pool.alloc(ty)
+            }
+        }
+    }
+}

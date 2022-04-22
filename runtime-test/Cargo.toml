@@ -1,0 +1,21 @@
+[package]
+name = "runtime-test"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+lexical={path="../lexical"}
+lexical-derive={path="../lexical-derive"}
+syntax={path="../syntax"}
+syntax-derive={path="../syntax-derive"}
+jvm-core={path="../jvm-core"}
+runtime={path="../runtime"}
+runtime-extra={path="../runtime-extra"}
+runtime-derive={path="../runtime-derive"}
+memory-mmmu={path="../memory-impl/memory-mmmu"}
+interpreter={path="../runtime-impl/interpreter"}
+util={path="../util"}
+libffi = "2.0.0"
+failure = "0.1.8"

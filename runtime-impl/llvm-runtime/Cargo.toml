@@ -1,0 +1,19 @@
+[package]
+name = "llvm-runtime"
+version = "0.1.0"
+edition = "2018"
+
+[profile.release]
+lto = true
+opt-level = 'z'
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+jvm-core={path="../../jvm-core"}
+runtime={path="../../runtime"}
+util={path="../../util"}
+inkwell = { git = "https://github.com/TheDan64/inkwell", branch = "master",default-features = false, features = ["target-x86","llvm10-0"] }
+# llvm-sys = "100"
+failure = "0.1.8"
+lazy_static = "1.4.0"
+smallvec = "1.6.1"

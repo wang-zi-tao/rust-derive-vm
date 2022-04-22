@@ -1,0 +1,21 @@
+[package]
+name = "util"
+version = "0.1.0"
+authors = ["王子陶 <2451355023@qq.com>"]
+edition = "2018"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+failure = "0.1.8"
+failure_derive = "0.1.8"
+dashmap ="3.11.7"
+lazy_static = "1.2.0"
+atomic = "0.5.0"
+crossbeam = "0.8.0"
+log = "0.4.0"
+env_logger = "0.6.0"
+evmap="11.0.0-alpha.7"
+left-right = "0.11.2"
+smallvec = "1.6.1"
+util-derive = {path="../util-derive/"}

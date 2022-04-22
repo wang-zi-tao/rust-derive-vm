@@ -1,0 +1,24 @@
+[package]
+name = "runtime-extra"
+version = "0.1.0"
+edition = "2021"
+authors = ["王子陶 <2451355023@qq.com>"]
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+jvm-core={path = "../jvm-core"}
+util={path="../util" }
+util-derive={path = "../util-derive"}
+classfile={path="../classfile"}
+runtime={path="../runtime"}
+runtime-derive={path="../runtime-derive"}
+failure = "0.1.8"
+failure_derive = "0.1.8"
+dashmap ="3.11.7"
+getset = "0.1.1"
+crossbeam = "0.8.0"
+log = "0.4.0"
+env_logger = "0.6.0"
+smallvec = "1.6.1"
+phf = "0.10.0"

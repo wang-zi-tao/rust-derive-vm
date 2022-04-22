@@ -1,0 +1,21 @@
+[package]
+name = "lexical-derive"
+version = "0.1.0"
+edition = "2018"
+
+[lib]
+proc-macro = true
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+[dependencies]
+# lexical={path="../lexical"}
+syn ={version = "1.0.72",features = ["full"]}
+quote = "1.0.0"
+synstructure = "0.12.4"
+proc-macro2 = "1.0.27"
+log = "0.4.0"
+env_logger = "0.6.0"
+regex = "1.5.4"
+failure = "0.1.8"
+failure_derive = "0.1.8"
+lazy_static = "1.1.1"
+lexical={path="../lexical"}

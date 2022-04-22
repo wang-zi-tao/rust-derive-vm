@@ -1,0 +1,22 @@
+[package]
+name = "os"
+version = "0.1.0"
+authors = ["王子陶 <2451355023@qq.com>"]
+edition = "2018"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+failure = "0.1.8"
+failure_derive = "0.1.8"
+log = "0.4.0"
+env_logger = "0.6.0"
+lazy_static = "1.1.1"
+memmap = "0.6.1"
+mmap = "0.1.1"
+libc = "0.2.98"
+memfd = "0.4.0"
+self-meter = "0.6.0"
+madvise = "0.1.0"
+smallvec = "1.6.1"
+jvm-core={path="../jvm-core"}

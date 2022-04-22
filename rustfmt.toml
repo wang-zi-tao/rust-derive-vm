@@ -1,0 +1,9 @@
+max_width=160
+merge_imports = true
+reorder_imports = true
+imports_granularity="Crate"
+normalize_comments = true
+reorder_impl_items = true
+use_field_init_shorthand = true
+single_line_if_else_max_width=100
+use_small_heuristics="Max"

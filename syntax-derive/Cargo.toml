@@ -1,0 +1,17 @@
+[package]
+name = "syntax-derive"
+version = "0.1.0"
+edition = "2018"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[lib]
+proc-macro = true
+[dependencies]
+syn ={version = "1.0.72",features = ["full"]}
+quote = "1.0.0"
+synstructure = "0.12.4"
+proc-macro2 = "1.0.27"
+failure = "0.1.8"
+ahash = "0.7.6"
+lexical={path="../lexical"}
