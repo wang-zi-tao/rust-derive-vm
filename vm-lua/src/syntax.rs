@@ -62,17 +62,13 @@ pub fn parse(source: Vec<LuaLexical>) -> Fallible<FunctionPack<LuaInstructionSet
           lua_parser:LuaLexical->(){
             chunk=>()->{
               [stat_list,return_expr(r)]=>ctx.emit_return(r);
-                | [return_expr(r)]=>ctx.emit_return(r);
                 | [stat_list]=>ctx.emit_return(None);
-                | []=>ctx.emit_return(None);
             },
             block=>(LuaBlockRef<'_>,LuaBlockRef<'_>)->{
               [scopt_begin(b),stat_list,return_expr(r),block_split(s)]=>ctx.return_(r,s);
                 | [scopt_begin(b),stat_list,block_split(s)]=>Ok(s);
-                | [scopt_begin(b),return_expr(r),block_split(s)]=>ctx.return_(r,s);
-                | [scopt_begin(b),block_split(s)]=>Ok(s);
             },
-            stat_list=>()->{ [stat]|[stat_list,stat] },
+            stat_list=>()->{ []|[stat_list,stat] },
             block_split=>(LuaBlockRef<'_>,LuaBlockRef<'_>)->{ []=>Ok((ctx.current_block.clone(),ctx.new_block().clone())); },
             current_block=>LuaBlockRef<'_>->{ []=>Ok(ctx.current_block.clone()); },
             scopt_begin=>LuaScoptRef<'_>->{ []=>Ok(ctx.new_scopt(ScoptKind::Other).clone()); },
