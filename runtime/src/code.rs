@@ -4,7 +4,7 @@ use std::{
 };
 
 use failure::Fallible;
-use ghost_cell::GhostToken;
+use ghost_cell::{GhostCell, GhostToken};
 use jvm_core::{self, FunctionType, ObjectBuilder, ObjectBuilderImport, ObjectBuilderInner, ObjectRef, SymbolBuilder, TypeDeclaration};
 use log::{debug, trace};
 use smallvec::SmallVec;
@@ -96,8 +96,10 @@ impl<'l, S> FunctionBuilder<'l, S> {
         let remote_constants = self.remote_constants;
         let mut buffer = ObjectBuilder::default();
         for block in blocks {
+            debug!("merge {:?}<={:?}", GhostCell::borrow(&buffer, token), GhostCell::borrow(block.codes(), token));
             buffer = ObjectBuilder::merge(token, buffer, block.codes);
         }
+        debug!("merge {:?}<={:?}", GhostCell::borrow(&buffer, token), GhostCell::borrow(&remote_constants, token));
         buffer = ObjectBuilder::merge(token, buffer, remote_constants);
         buffer.borrow_mut(token).add_symbol(SymbolBuilder::default().offset(0).relocation_kind(jvm_core::RelocationKind::Usize).build()?);
         let object = buffer.take(token).build()?;
@@ -111,9 +113,17 @@ pub struct BlockBuilder<'l, S> {
     phantom_data: PhantomData<fn(S) -> S>,
 }
 
+impl<'l, S> std::ops::Deref for BlockBuilder<'l, S> {
+    type Target = ObjectBuilder<'l>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.codes
+    }
+}
+
 impl<'l, S> Debug for BlockBuilder<'l, S> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("BlockBuilder").field("codes", &self.codes).finish()
+        f.debug_struct(&format!("BlockBuilder@{:?}", &**self.codes as *const GhostCell<'_, ObjectBuilderInner>)).field("codes", &self.codes).finish()
     }
 }
 

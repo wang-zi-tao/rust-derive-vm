@@ -221,6 +221,7 @@ pub(crate) fn follow_set<'t>(productions: &'t ProductionMap, maybe_empty: &HashS
 
 pub(crate) type FirstSet = HashMap<Rc<Production>, Vec<Option<Rc<Terminal>>>, ahash::RandomState>;
 pub(crate) fn first_set(productions: &ProductionMap) -> FirstSet {
+    // TODO 适配LR(1)文法
     let mut result = HashMap::with_hasher(ahash::RandomState::with_seed(0));
     let mut history = HashSet::with_hasher(ahash::RandomState::with_seed(0));
     let mut queue: Vec<_> = productions

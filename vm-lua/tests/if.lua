@@ -1,3 +1,7 @@
 if true then
-  a = 1
+  do
+  end
+else
+  do
+  end
 end

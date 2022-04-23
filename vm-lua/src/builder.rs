@@ -240,7 +240,7 @@ impl<'l> LuaFunctionBuilder<'l> {
     pub fn pack(self, token: &mut GhostToken<'l>) -> Fallible<FunctionPack<LuaInstructionSet>> {
         let mut function_builder = FunctionBuilder::new();
         for block in self.blocks.iter() {
-            debug!("add_block:{:?}", &block.borrow(token).builder.codes().borrow(token));
+            debug!("add_block:{:?}", &block.borrow(token).builder.borrow(token).borrow());
             function_builder.add_block(block.borrow(token).builder.clone());
         }
         function_builder.pack(
@@ -815,7 +815,7 @@ impl<'l> LuaContext<'l> {
         for block in self.current_function().blocks.clone().iter() {
             debug!(
                 "function_builder.add_block:{:?}",
-                block.borrow(&mut self.token).builder.codes()
+                block.borrow(&self.token).builder.borrow(&self.token)
             );
             function_builder.add_block(block.borrow(&mut self.token).builder.clone());
         }

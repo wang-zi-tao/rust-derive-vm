@@ -431,7 +431,7 @@ impl<'t> StateMachineBuilder<'t> {
                         let mut add_item = |outlook: Option<Rc<Terminal>>| {
                             for production in self.productions.get(&nonterminal).iter().flat_map(|v| v.iter()) {
                                 let new_item = LR0Item { production: production.clone(), position: 0 };
-                                if items.get(&new_item).map(|i| i.contains(&outlook)) != Some(true) {
+                                if items.get_mut(&new_item).map(|i| i.contains(&outlook)) != Some(true) {
                                     new_items.entry(new_item).or_default().insert(outlook.clone());
                                 }
                             }
@@ -461,16 +461,7 @@ impl<'t> StateMachineBuilder<'t> {
                             }
                         }
                         if has_end {
-                            for outlook in outlooks {
-                                match outlook {
-                                    Some(terminal) => {
-                                        add_item(Some(terminal.clone()));
-                                    }
-                                    None => {
-                                        add_item(None);
-                                    }
-                                }
-                            }
+                            outlooks.iter().for_each(|o| add_item(o.clone()));
                             add_item(None);
                         }
                     }
@@ -550,7 +541,6 @@ impl<'t> StateMachineBuilder<'t> {
             if new_items.is_empty() {
                 continue;
             }
-            // println!("{}->{:?}", &node_cell.borrow().id, &outlooks);
             {
                 {
                     let mut node = node_cell.borrow_mut();
@@ -575,8 +565,8 @@ impl<'t> StateMachineBuilder<'t> {
                 }
                 for (terminal, action) in node_cell.borrow().action_map.iter() {
                     match action {
-                        Action::Shift(new_node_cell) => {
-                            let node = new_node_cell.borrow();
+                        Action::Shift(shift_node_cell) => {
+                            let node = shift_node_cell.borrow();
                             let outlooks: BTreeMap<_, _> = {
                                 new_items
                                     .iter()
@@ -597,7 +587,7 @@ impl<'t> StateMachineBuilder<'t> {
                                     })
                                     .collect()
                             };
-                            tasks.push((outlooks, new_node_cell.clone()));
+                            tasks.push((self.closure(outlooks), shift_node_cell.clone()));
                         }
                         Action::Reduce(_production) => {}
                         Action::Accept(_) => {}
@@ -605,7 +595,7 @@ impl<'t> StateMachineBuilder<'t> {
                 }
                 {
                     let node = node_cell.borrow();
-                    for (non_terminal, new_node_cell) in node.goto_map.iter() {
+                    for (non_terminal, goto_node_cell) in node.goto_map.iter() {
                         for (item, _exist_outlooks) in
                             node.items.iter().filter(|(item, _)| matches!(item.next_symbol(),Some(Symbol::NonTerminal(n))if &n==non_terminal))
                         {
@@ -621,7 +611,7 @@ impl<'t> StateMachineBuilder<'t> {
                                     .flat_map(|nonterminal| self.first_set.get(nonterminal))
                                     .any(|f| f.contains(&None)),
                             }) {
-                                let node = new_node_cell.borrow();
+                                let node = goto_node_cell.borrow();
                                 let new_items: BTreeMap<_, _> = {
                                     new_items
                                     .iter()
@@ -642,7 +632,7 @@ impl<'t> StateMachineBuilder<'t> {
                                     })
                                     .collect()
                                 };
-                                tasks.push((new_items, new_node_cell.clone()));
+                                tasks.push((self.closure(new_items), goto_node_cell.clone()));
                             }
                         }
                     }

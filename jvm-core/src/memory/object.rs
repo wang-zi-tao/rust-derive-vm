@@ -11,7 +11,7 @@ use std::{
 };
 
 use failure::{format_err, Fallible};
-use getset::{CopyGetters, Setters};
+use getset::{CopyGetters, Getters, Setters};
 use hashbrown::HashSet;
 
 use super::buffer::UnsafeBuffer;
@@ -337,7 +337,6 @@ impl<'b> ObjectBuilder<'b> {
                 redirect_exports_tasks.push((usage.clone(), symbol_index, *relocation_index));
             }
         }
-        let mut relocation_imports_tasks = Vec::new();
         for (_relocation_index, (source, _relocation, symbol_index)) in b1.relocations.iter_mut().enumerate().take(relocation_offset) {
             match (&source, symbol_index) {
                 (ObjectBuilderImport::Builder(b), symbol_index) if b == &builder2 => {
@@ -347,6 +346,7 @@ impl<'b> ObjectBuilder<'b> {
                 _ => {}
             };
         }
+        let mut relocation_imports_tasks = Vec::new();
         for (relocation_index, (source, relocation, symbol_index)) in b1.relocations.iter_mut().enumerate().skip(symbol_offset) {
             match source {
                 ObjectBuilderImport::Builder(b) if b == &builder1 => {
@@ -375,7 +375,11 @@ impl<'b> ObjectBuilder<'b> {
                     let value = source.get_export_ptr(symbol_index);
                     b1.deref().deref().borrow(token).relocations[relocation_index].1.clone().relocate(&mut b1.borrow_mut(token).buffer, value);
                 },
-                _ => {}
+                ObjectBuilderImport::Reflexive => unsafe {
+                    let value = b1.borrow(token).get_export_ptr(symbol_index);
+                    b1.borrow(token).relocations[relocation_index].1.clone().relocate(&mut b1.borrow_mut(token).buffer, value);
+                    b1.borrow_mut(token).relocations[relocation_index].1.offset += offset;
+                },
             }
         }
         for (target, relocation_index, symbol_index) in redirect_exports_tasks {
@@ -430,15 +434,30 @@ impl<'b> Debug for ObjectBuilder<'b> {
     }
 }
 
-#[derive(Debug, CopyGetters, Setters)]
+#[derive(CopyGetters, Getters, Setters)]
 pub struct ObjectBuilderInner<'l> {
+    #[getset(get = "pub with_prefix")]
     buffer: UnsafeBuffer,
+    #[getset(get = "pub with_prefix")]
     relocations: Vec<(ObjectBuilderImport<'l>, Relocation, usize)>,
+    #[getset(get = "pub with_prefix")]
     symbols: Vec<Symbol<(ObjectBuilderExport<'l>, usize)>>,
     #[getset(get_copy = "pub with_prefix", set = "pub with_prefix")]
     pin: bool,
     #[getset(get_copy = "pub with_prefix", set = "pub with_prefix")]
     align: usize,
+}
+
+impl<'l> Debug for ObjectBuilderInner<'l> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct(&format!("ObjectBuilderInner@{:?}", self as *const Self))
+            .field("buffer", &self.buffer)
+            .field("symbols", &self.symbols)
+            .field("relocations", &self.relocations)
+            .field("pin", &self.pin)
+            .field("align", &self.align)
+            .finish()
+    }
 }
 impl<'l> Default for ObjectBuilderInner<'l> {
     fn default() -> Self {
