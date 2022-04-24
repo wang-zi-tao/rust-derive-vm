@@ -573,9 +573,6 @@ impl<'t> StateMachineBuilder<'t> {
                                     .filter_map(|(item, outlooks)| {
                                         let mut outlooks = (*outlooks).clone();
                                         if matches!(item.clone().next_symbol().as_ref(), Some(Symbol::Terminal(next_terminal)) if Some(next_terminal)==terminal.as_ref()) {
-                                            if let Some(exist_outlooks) = node.items.get(item) {
-                                                outlooks.retain(|outlook| !exist_outlooks.contains(outlook));
-                                            }
                                             if outlooks.is_empty() {
                                                 None
                                             } else {
@@ -618,9 +615,6 @@ impl<'t> StateMachineBuilder<'t> {
                                     .filter_map(|(item, outlooks)| {
                                         let mut outlooks = (*outlooks).clone();
                                         if matches!(item.clone().next_symbol().as_ref(), Some(Symbol::NonTerminal(next_nonterminal)) if next_nonterminal==non_terminal) {
-                                            if let Some(exist_outlooks) = node.items.get(item) {
-                                                outlooks.retain(|outlook| !exist_outlooks.contains(outlook));
-                                            }
                                             if outlooks.is_empty() {
                                                 None
                                             } else {

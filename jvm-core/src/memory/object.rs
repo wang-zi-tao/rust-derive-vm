@@ -1,5 +1,4 @@
 use std::{
-    borrow::Borrow,
     convert::TryFrom,
     fmt::Debug,
     hash::Hash,
@@ -13,6 +12,7 @@ use std::{
 use failure::{format_err, Fallible};
 use getset::{CopyGetters, Getters, Setters};
 use hashbrown::HashSet;
+use log::debug;
 
 use super::buffer::UnsafeBuffer;
 use ghost_cell::{GhostCell, GhostToken};
@@ -27,6 +27,14 @@ impl RelocationKind {
         match self {
             RelocationKind::I8Relative | RelocationKind::I32Relative => true,
             RelocationKind::Usize => false,
+        }
+    }
+
+    pub fn size(&self) -> usize {
+        match self {
+            RelocationKind::I8Relative => 1,
+            RelocationKind::I32Relative => 4,
+            RelocationKind::Usize => size_of::<usize>(),
         }
     }
 }
@@ -290,11 +298,10 @@ impl<'b> ObjectBuilder<'b> {
         let offset = b1.len();
         let symbol_offset = b1.symbols.len();
         let relocation_offset = b1.relocations.len();
-        let ObjectBuilderInner { buffer, relocations, symbols, pin: _, align: _ } = b2;
-        b1.push_slice(unsafe { buffer.borrow() });
+        let ObjectBuilderInner { buffer: b2_buffer, relocations, symbols, pin: _, align: _ } = b2;
+        b1.push_slice(unsafe { b2_buffer.borrow() });
         b1.symbols.extend(symbols);
         b1.relocations.extend(relocations);
-        let mut redirect_exports_tasks = Vec::new();
         for (symbol_index, symbol) in b1.symbols.iter_mut().enumerate().take(symbol_offset) {
             for (mut usage, mut relocation_index) in symbol
                 .usage
@@ -308,14 +315,20 @@ impl<'b> ObjectBuilder<'b> {
                     }
                     _ => unreachable!(),
                 };
-                symbol.usage.insert((usage, relocation_index));
+                let not_already_exist = symbol.usage.insert((usage, relocation_index));
+                assert!(not_already_exist);
             }
         }
+        let mut redirect_exports_tasks = Vec::new();
         for (symbol_index, symbol) in b1.symbols.iter_mut().enumerate().skip(symbol_offset) {
             symbol.offset += offset;
             for (mut usage, mut relocation_index) in symbol
                 .usage
-                .drain_filter(|(usage_symbol, _relocation_index)| !matches!(usage_symbol,ObjectBuilderExport::Builder(b)if b==&builder1 || b==&builder2))
+                .drain_filter(|(usage_symbol, _relocation_index)| match usage_symbol {
+                    ObjectBuilderExport::Reflexive => false,
+                    ObjectBuilderExport::Builder(b) if b == &builder1 || b == &builder2 => false,
+                    _ => true,
+                })
                 .collect::<Vec<_>>()
             {
                 match &usage {
@@ -331,7 +344,8 @@ impl<'b> ObjectBuilder<'b> {
                     }
                     _ => unreachable!(),
                 };
-                symbol.usage.insert((usage, relocation_index));
+                let not_already_exist = symbol.usage.insert((usage, relocation_index));
+                assert!(not_already_exist);
             }
             for (usage, relocation_index) in &symbol.usage {
                 redirect_exports_tasks.push((usage.clone(), symbol_index, *relocation_index));
@@ -347,7 +361,7 @@ impl<'b> ObjectBuilder<'b> {
             };
         }
         let mut relocation_imports_tasks = Vec::new();
-        for (relocation_index, (source, relocation, symbol_index)) in b1.relocations.iter_mut().enumerate().skip(symbol_offset) {
+        for (relocation_index, (source, relocation, symbol_index)) in b1.relocations.iter_mut().enumerate().skip(relocation_offset) {
             match source {
                 ObjectBuilderImport::Builder(b) if b == &builder1 => {
                     *source = ObjectBuilderImport::Reflexive;
@@ -367,35 +381,39 @@ impl<'b> ObjectBuilder<'b> {
                 ObjectBuilderImport::Builder(source) => unsafe {
                     let source_inner = source.deref().deref().borrow(token);
                     let value = source_inner.get_export_ptr(symbol_index);
-                    b1.borrow(token).relocations[relocation_index].1.clone().relocate(&mut b1.borrow_mut(token).buffer, value);
-                    b1.borrow_mut(token).relocations[relocation_index].1.offset += offset;
+                    b1.borrow_mut(token).relocate(relocation_index, (ObjectBuilderImport::Reflexive, symbol_index), value);
+                    {
+                        let usage = &mut source.borrow_mut(token).symbols[symbol_index].usage;
+                        let already_exist = usage.remove(&(ObjectBuilderExport::Builder(builder2.clone()), relocation_index - relocation_offset));
+                        assert!(already_exist, "{:?} remove {:?}", usage, (builder2, relocation_index - relocation_offset));
+                        let not_already_exist = usage.insert((ObjectBuilderExport::Builder(builder1.clone()), relocation_index));
+                        assert!(not_already_exist, "{:?} insert {:?}", usage, (builder1, relocation_index));
+                    }
                 },
                 ObjectBuilderImport::ObjectRef(source) => unsafe {
                     let source = source.lock().unwrap();
                     let value = source.get_export_ptr(symbol_index);
-                    b1.deref().deref().borrow(token).relocations[relocation_index].1.clone().relocate(&mut b1.borrow_mut(token).buffer, value);
+                    b1.borrow_mut(token).relocate(relocation_index, (ObjectBuilderImport::Reflexive, symbol_index), value);
                 },
                 ObjectBuilderImport::Reflexive => unsafe {
                     let value = b1.borrow(token).get_export_ptr(symbol_index);
-                    b1.borrow(token).relocations[relocation_index].1.clone().relocate(&mut b1.borrow_mut(token).buffer, value);
-                    b1.borrow_mut(token).relocations[relocation_index].1.offset += offset;
+                    b1.borrow_mut(token).relocate(relocation_index, (ObjectBuilderImport::Reflexive, symbol_index), value);
                 },
             }
         }
-        for (target, relocation_index, symbol_index) in redirect_exports_tasks {
+        for (target, symbol_index, relocation_index) in redirect_exports_tasks {
             unsafe {
                 match target {
                     ObjectBuilderExport::Builder(target) => {
                         let value = b1.deref().deref().borrow(token).get_export_ptr(symbol_index);
-                        target.borrow_mut(token).relocations[relocation_index].1.clone().relocate(&mut b1.borrow_mut(token).buffer, value);
+                        target.borrow_mut(token).relocate(relocation_index, (ObjectBuilderImport::Builder(builder1.clone()), symbol_index), value);
                     }
                     ObjectBuilderExport::Reflexive => {
                         let value = b1.deref().deref().borrow(token).get_export_ptr(symbol_index);
-                        b1.borrow_mut(token).relocations[relocation_index].1.clone().relocate(&mut b1.borrow_mut(token).buffer, value);
+                        b1.borrow_mut(token).relocate(relocation_index, (ObjectBuilderImport::Reflexive, symbol_index), value);
                     }
                 }
             }
-            b1.borrow_mut(token).symbols[symbol_index].offset += offset;
         }
         builder1
     }
@@ -473,15 +491,49 @@ impl<'l> ObjectBuilderInner<'l> {
         Self { buffer: UnsafeBuffer::with_capacity(capacity), ..Default::default() }
     }
 
-    pub fn push_import(&mut self, import: ObjectBuilderImport<'l>, relocation_kind: RelocationKind, symbol_index: usize) {
-        self.relocations.push((import, Relocation { offset: self.len(), relocation_kind }, symbol_index));
-        self.receive::<i32>();
+    pub fn push_import(
+        this: &ObjectBuilder<'l>,
+        token: &mut GhostToken<'l>,
+        import: ObjectBuilderImport<'l>,
+        relocation_kind: RelocationKind,
+        symbol_index: usize,
+    ) {
+        let relocation_index = this.borrow(token).relocations.len();
+        let offset = this.borrow(token).len();
+        match &import {
+            ObjectBuilderImport::Builder(source) => {
+                source.borrow_mut(token).symbols[symbol_index].usage.insert((ObjectBuilderExport::Builder(this.clone()), relocation_index));
+            }
+            ObjectBuilderImport::ObjectRef(_) => {}
+            ObjectBuilderImport::Reflexive => {
+                this.borrow_mut(token).symbols[symbol_index].usage.insert((ObjectBuilderExport::Reflexive, relocation_index));
+            }
+        }
+        match relocation_kind {
+            RelocationKind::I8Relative => {
+                this.borrow_mut(token).receive::<i8>();
+            }
+            RelocationKind::I32Relative => {
+                this.borrow_mut(token).receive::<i32>();
+            }
+            RelocationKind::Usize => {
+                this.borrow_mut(token).receive::<usize>();
+            }
+        }
+        this.borrow_mut(token).relocations.push((import, Relocation { offset, relocation_kind }, symbol_index));
     }
 
     pub fn add_symbol(&mut self, symbol: Symbol<(ObjectBuilderExport<'l>, usize)>) -> usize {
         let index = self.symbols.len();
         self.symbols.push(symbol);
         index
+    }
+
+    fn relocate(&mut self, relocation_index: usize, source: (ObjectBuilderImport<'l>, usize), ptr: *const u8) {
+        let relocation = &mut self.relocations[relocation_index];
+        relocation.1.relocate(&mut self.buffer, ptr);
+        relocation.0 = source.0;
+        relocation.2 = source.1;
     }
 
     pub fn set_import(&mut self, offset: usize, import: ObjectRef, relocation_kind: RelocationKind, symbol_index: usize) {
@@ -585,13 +637,13 @@ impl<'l> ObjectBuilderInner<'l> {
 }
 
 pub trait MoveIntoObject {
-    fn set(self, offset: usize, object_builder: &mut ObjectBuilderInner);
-    fn append(self, object_builder: &mut ObjectBuilderInner)
+    fn set<'l>(self, offset: usize, object_builder: &ObjectBuilder<'l>, token: &mut GhostToken<'l>);
+    fn append<'l>(self, object_builder: &ObjectBuilder<'l>, token: &mut GhostToken<'l>)
     where
         Self: Sized,
     {
-        let offset = object_builder.len();
-        object_builder.grow(offset + size_of::<Self>());
-        self.set(offset, object_builder)
+        let offset = object_builder.borrow(token).len();
+        object_builder.borrow_mut(token).grow(offset + size_of::<Self>());
+        self.set(offset, object_builder, token)
     }
 }

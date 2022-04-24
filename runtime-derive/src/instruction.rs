@@ -630,11 +630,8 @@ impl MetadataDeclaration {
                       #name : <#value_type as jvm_core::TypeDeclaration>::Impl
                     });
                     emit_generic.push(quote! {
-                        {
-                            let b=builder.codes().borrow_mut(token);
-                            b.align(<#value_type as jvm_core::TypeDeclaration>::LAYOUT.align());
-                            <<#value_type as jvm_core::TypeDeclaration>::Impl as jvm_core::MoveIntoObject>::append( #name, b);
-                        }
+                        builder.codes().borrow_mut(token).align(<#value_type as jvm_core::TypeDeclaration>::LAYOUT.align());
+                        <<#value_type as jvm_core::TypeDeclaration>::Impl as jvm_core::MoveIntoObject>::append( #name, builder.codes(),token);
                     });
                 }
                 GenericsDeclarationKind::BasicBlock => {

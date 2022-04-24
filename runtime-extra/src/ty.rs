@@ -1,7 +1,7 @@
-use std::mem::{align_of, size_of};
-
 use crate as runtime_extra;
-use jvm_core::{FloatKind, IntKind, MoveIntoObject, Pointer, Tuple, Type, TypeDeclaration, TypeLayout};
+use ghost_cell::GhostToken;
+use jvm_core::{FloatKind, IntKind, MoveIntoObject, ObjectBuilder, Pointer, Tuple, Type, TypeDeclaration, TypeLayout};
+use std::mem::{align_of, size_of};
 use util::CowArc;
 
 macro_rules! wrap_type {
@@ -26,12 +26,8 @@ macro_rules! wrap_type {
             pub const TYPE: Type = $ty;
         }
         impl MoveIntoObject for $name {
-            fn set(self, index: usize, object_builder: &mut jvm_core::ObjectBuilderInner) {
-                object_builder.set(index, self.0);
-            }
-
-            fn append(self, object_builder: &mut jvm_core::ObjectBuilderInner) {
-                object_builder.push(self.0);
+            fn set<'l>(self, offset: usize, object_builder: &ObjectBuilder<'l>, token: &mut GhostToken<'l>) {
+                object_builder.borrow_mut(token).receive_at(offset).write(self.0);
             }
         }
     };

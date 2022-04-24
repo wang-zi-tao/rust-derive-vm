@@ -815,7 +815,7 @@ impl<'l> LuaContext<'l> {
         for block in self.current_function().blocks.clone().iter() {
             debug!(
                 "function_builder.add_block:{:?}",
-                block.borrow(&self.token).builder.borrow(&self.token)
+                block.borrow(&self.token).builder.borrow(self.token())
             );
             function_builder.add_block(block.borrow(&mut self.token).builder.clone());
         }

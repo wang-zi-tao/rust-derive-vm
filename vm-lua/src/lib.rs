@@ -196,13 +196,13 @@ mod tests {
             for (entry, name) in iter {
                 match (|| {
                     if name.ends_with(".lua") {
-                        debug!("loading:{}, index:{}\n", &name, &index);
+                        debug!(target : "test_scripts", "loading:{}, index:{}\n", &name, &index);
                         let code = std::fs::read_to_string(entry.path())?;
                         let state = crate::new_state()?;
                         let pack = crate::pack_code(&*code)?;
-                        debug!("packed:{:?}\n", &pack);
+                        debug!(target : "test_scripts", "packed:{:?}\n", &pack);
                         crate::run_code(state, &*code)?;
-                        debug!("finish:{}\n", &name);
+                        debug!(target : "test_scripts", "finish:{}\n", &name);
                     }
                     Fallible::Ok(())
                 })() {

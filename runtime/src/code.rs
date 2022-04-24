@@ -96,10 +96,8 @@ impl<'l, S> FunctionBuilder<'l, S> {
         let remote_constants = self.remote_constants;
         let mut buffer = ObjectBuilder::default();
         for block in blocks {
-            debug!("merge {:?}<={:?}", GhostCell::borrow(&buffer, token), GhostCell::borrow(block.codes(), token));
             buffer = ObjectBuilder::merge(token, buffer, block.codes);
         }
-        debug!("merge {:?}<={:?}", GhostCell::borrow(&buffer, token), GhostCell::borrow(&remote_constants, token));
         buffer = ObjectBuilder::merge(token, buffer, remote_constants);
         buffer.borrow_mut(token).add_symbol(SymbolBuilder::default().offset(0).relocation_kind(jvm_core::RelocationKind::Usize).build()?);
         let object = buffer.take(token).build()?;
@@ -172,7 +170,7 @@ impl<'l, S: InstructionSet> BlockBuilder<'l, S> {
         } else {
             ObjectBuilderImport::Builder(block.codes().clone())
         };
-        self.codes().borrow_mut(token).push_import(import, jvm_core::RelocationKind::I32Relative, 0);
+        ObjectBuilderInner::push_import(self.codes(), token, import, jvm_core::RelocationKind::I32Relative, 0);
     }
 }
 #[derive(Debug)]

@@ -809,8 +809,8 @@ impl<T: TypeDeclaration> Clone for Pointer<T> {
 }
 
 impl<T: TypeDeclaration> MoveIntoObject for Pointer<T> {
-    fn set(self, offset: usize, object_builder: &mut crate::ObjectBuilderInner) {
-        object_builder.receive_at(offset).write(self.0);
+    fn set<'l>(self, offset: usize, object_builder: &crate::ObjectBuilder<'l>, token: &mut ghost_cell::GhostToken<'l>) {
+        object_builder.borrow_mut(token).receive_at(offset).write(self.0);
     }
 }
 

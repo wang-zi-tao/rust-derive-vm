@@ -1,9 +1,8 @@
 use super::mem::*;
-use jvm_core::{Direct, MoveIntoObject, Pointer, Slice, TypeDeclaration, UnsizedArray};
+use jvm_core::{Direct, MoveIntoObject, ObjectBuilder, Pointer, Slice, TypeDeclaration, UnsizedArray};
 use runtime::instructions::{bootstrap::{self as b, CallState, GetLength, MakeSlice, Read, SetState, Write}, Instruction};
 use runtime_extra::{self as e, instructions::*, ty::*};
 use std::{cell::UnsafeCell, marker::PhantomData, mem::MaybeUninit};
-
 
 make_instruction! { ConstValue->fn<const v:LuaValue>()->(o:LuaValue){ entry:{ %o=b::Move<LuaValue::TYPE>(%v); }} }
 make_instruction! { ConstNil->fn()->(o:LuaValue){ entry:{ %o= lua_value::EncodeNil(b::UninitedStruct<Unit::TYPE>()); }} }
@@ -1049,8 +1048,8 @@ pub struct InlineCacheLine {
     pub slot: U32,
 }
 impl MoveIntoObject for InlineCacheLineImpl {
-    fn set(self, offset: usize, object_builder: &mut jvm_core::ObjectBuilderInner) {
-        object_builder.receive_at(offset).write(self.0);
+    fn set<'l>(self, offset: usize, object_builder: &ObjectBuilder<'l>, token: &mut ghost_cell::GhostToken<'l>) {
+        object_builder.borrow_mut(token).receive_at(offset).write(self.0);
     }
 }
 type NullableBoolReferenceDecodeSomeUnchecked = nullable_option::DecodeSomeUnchecked<BoolReference>;
@@ -1177,12 +1176,9 @@ pub unsafe extern "C" fn __vm_lua_lib_clone_shape(dest: Pointer<LuaShape>, src: 
     dest.as_ref_mut().set_fields(UnsafeCell::new(
         src.as_ref().ref_fields().get().as_ref().unwrap().clone(),
     ));
-    dest.as_ref_mut()
-        .set_meta_functions(src.as_ref().get_meta_functions());
-    dest.as_ref_mut()
-        .set_as_meta_table(src.as_ref().get_as_meta_table());
-    dest.as_ref_mut()
-        .set_max_int_index(src.as_ref().get_max_int_index());
+    dest.as_ref_mut().set_meta_functions(src.as_ref().get_meta_functions());
+    dest.as_ref_mut().set_as_meta_table(src.as_ref().get_as_meta_table());
+    dest.as_ref_mut().set_max_int_index(src.as_ref().get_max_int_index());
     dest.as_ref_mut().set_is_owned(src.as_ref().get_is_owned());
     dest.as_ref_mut().set_invalid(src.as_ref().get_invalid());
     dest.as_ref_mut().set_action_of_field(Default::default());

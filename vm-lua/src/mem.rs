@@ -1,13 +1,11 @@
 use crate::TypeResourceImpl;
 
-
-use jvm_core::{make_reference, Aligned, FunctionType, MoveIntoObject, Native, Pointer, Reference, Resource, SymbolRef, Type, TypeDeclaration, TypeLayout, UnsizedArray};
+use jvm_core::{make_reference, Aligned, FunctionType, MoveIntoObject, Native, ObjectBuilder, Pointer, Reference, Resource, SymbolRef, Type, TypeDeclaration, TypeLayout, UnsizedArray};
 use lexical::_lazy_static::lazy_static;
 
-
-use runtime_extra::{ty::*};
+use runtime_extra::ty::*;
 use std::cell::UnsafeCell;
-use std::{collections::{HashMap}, hash::Hash};
+use std::{collections::HashMap, hash::Hash};
 use util::{inline_const, CowArc, CowSlice, PooledStr};
 #[derive(TypeDeclaration)]
 #[make_type(make_instruction)]
@@ -164,8 +162,8 @@ pub enum LuaValue {
     Closure(LuaClosureReference),
 }
 impl MoveIntoObject for LuaValueImpl {
-    fn set(self, offset: usize, object_builder: &mut jvm_core::ObjectBuilderInner) {
-        object_builder.receive_at(offset).write(self.0);
+    fn set<'l>(self, offset: usize, object_builder: &ObjectBuilder<'l>, token: &mut ghost_cell::GhostToken<'l>) {
+        object_builder.borrow_mut(token).receive_at(offset).write(self.0);
     }
 }
 impl Clone for LuaValueImpl {
