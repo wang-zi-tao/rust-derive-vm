@@ -1,18 +1,13 @@
-use std::{
-    hash::Hash,
-};
+use std::hash::Hash;
 
-
-
-use failure::{Fallible};
-use jvm_core::{Tuple, Type};
-
-
+use failure::Fallible;
+use vm_core::{Tuple, Type};
 
 use util::{CacheAlignedVec, CowArc, EmbedGraph, Graph, GraphLocalHandle};
 
 use crate::{
-    plan::{EmbedStatistice, ReferenceStatistice}, RegistedType,
+    plan::{EmbedStatistice, ReferenceStatistice},
+    RegistedType,
 };
 pub struct AssignGraph {}
 impl Graph for AssignGraph {

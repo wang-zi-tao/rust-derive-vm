@@ -19,9 +19,9 @@ impl UnsafeBuffer {
         unsafe { Self::from_vec(Vec::with_capacity(capacity)) }
     }
 
-    pub unsafe fn get_ptr<T: Copy>(&self, offset: usize) -> NonNull<T> {
+    pub fn get_ptr<T: Copy>(&self, offset: usize) -> NonNull<T> {
         assert!(self.len() >= offset + size_of::<T>(), "UnsafeBuffer offset out of bounds, len:{}, offset:{}, size:{}", self.len(), offset, size_of::<T>());
-        NonNull::new_unchecked(self.data.as_ptr().cast::<u8>().add(offset).cast())
+        unsafe { NonNull::new_unchecked(self.data.as_ptr().cast::<u8>().add(offset).cast()) }
     }
 
     unsafe fn get_tail_ptr_and_grow<T: Copy>(&mut self) -> NonNull<T> {

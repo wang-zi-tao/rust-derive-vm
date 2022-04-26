@@ -3,10 +3,10 @@ use std::{
     sync::atomic::{AtomicU8, Ordering},
 };
 
-use crossbeam::atomic::{AtomicCell};
+use crossbeam::atomic::AtomicCell;
 use failure::Fallible;
-use jvm_core::OOPTrait;
 use os::mem::{MappedVM, VM};
+use vm_core::OOPTrait;
 
 pub struct GCHeapFrameMarkSet {
     mem: MappedVM,

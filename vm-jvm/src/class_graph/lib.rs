@@ -8,15 +8,15 @@ use class_loader::{BootstrapClassSet, ClassLoader};
 pub mod annotations;
 use classfile::ClassFile;
 use dashmap::DashSet;
-use jvm_core::OOPMemoryTrait;
 use util;
+use vm_core::OOPMemoryTrait;
 #[macro_use]
 extern crate util_derive;
 #[macro_use]
 extern crate getset;
-use jvm_core::{Module, RuntimeTrait};
 use std::{fmt::Debug, marker::PhantomData, sync::Arc};
 use util::Key;
+use vm_core::{Module, RuntimeTrait};
 
 pub(crate) mod class;
 pub(crate) mod class_loader;
@@ -63,7 +63,7 @@ impl Module for ClassGraph {}
 // Ok(self.bootstrap_class_loader.as_ref())
 // }
 //
-// fn create_bootstrap_class_loader(&self) -> Result<Arc<dyn jvm_core::ClassLoaderTrait>> {
+// fn create_bootstrap_class_loader(&self) -> Result<Arc<dyn vm_core::ClassLoaderTrait>> {
 // ClassLoader::create_bootstrap_class_loader().map(|c| c as Arc<dyn ClassLoaderTrait>)
 // }
 // }

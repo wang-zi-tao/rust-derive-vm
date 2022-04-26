@@ -1,12 +1,12 @@
 use std::{alloc::Layout, ptr::NonNull};
 
 use e::{Usize, U8};
-use jvm_core::{Native, Pointer, TypeDeclaration, TypeResource};
 use runtime::instructions::{bootstrap as b, Instruction, MemoryInstructionSet};
 use runtime_derive::{make_instruction, make_native_function, Instruction};
 use runtime_extra as e;
+use vm_core::{Native, Pointer, TypeDeclaration, TypeResource};
 
-use crate::{RegistedType};
+use crate::RegistedType;
 
 make_instruction! {Deref->fn(type_resource: Pointer<U8>,i:Pointer<U8>)->(o:Pointer<U8>){entry:{
     %o=b::Move<Pointer::<U8>::TYPE>(%i);

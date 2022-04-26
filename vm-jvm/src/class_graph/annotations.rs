@@ -10,8 +10,8 @@ use classfile::{
 };
 
 use failure::Fallible;
-use jvm_core::OOPRef;
 use util::PooledStr;
+use vm_core::OOPRef;
 
 use crate::{
     class::{JavaClass, JavaClassRef},
@@ -22,18 +22,12 @@ pub struct Annotation {
     pub elements: Vec<(PooledStr, ElementValue)>,
 }
 impl Annotation {
-    pub fn parse(
-        annotation: &attributes::Annotation,
-        class_loader: &ClassLoader,
-    ) -> Fallible<(Arc<JavaClass>, Self)> {
+    pub fn parse(annotation: &attributes::Annotation, class_loader: &ClassLoader) -> Fallible<(Arc<JavaClass>, Self)> {
         let mut elements = Vec::with_capacity(annotation.elements.len());
         for (n, e) in &annotation.elements {
             elements.push((n.clone(), ElementValue::parse(e, class_loader)?));
         }
-        Ok((
-            class_loader.get_class(&annotation.type_descriptor)?,
-            Self { elements },
-        ))
+        Ok((class_loader.get_class(&annotation.type_descriptor)?, Self { elements }))
     }
 }
 #[derive(Debug)]
@@ -43,31 +37,19 @@ pub struct Annotations {
 impl Annotations {}
 impl Default for Annotations {
     fn default() -> Self {
-        Self {
-            annotations: HashMap::new(),
-        }
+        Self { annotations: HashMap::new() }
     }
 }
 impl Annotations {
-    pub fn parse(
-        attributes: &HashMap<PooledStr, Attribute>,
-        class_loader: &ClassLoader,
-    ) -> Fallible<Self> {
-        if let Some(Attribute::RuntimeVisibleAnnotations(attribute)) =
-            attributes.get("RuntimeVisibleAnnotations")
-        {
+    pub fn parse(attributes: &HashMap<PooledStr, Attribute>, class_loader: &ClassLoader) -> Fallible<Self> {
+        if let Some(Attribute::RuntimeVisibleAnnotations(attribute)) = attributes.get("RuntimeVisibleAnnotations") {
             Annotations::parse_annotations_attributes(attribute, class_loader)
         } else {
-            Ok(Self {
-                annotations: HashMap::new(),
-            })
+            Ok(Self { annotations: HashMap::new() })
         }
     }
 
-    pub fn parse_annotations_attributes(
-        attribute: &RuntimeVisibleAnnotations,
-        class_loader: &ClassLoader,
-    ) -> Fallible<Self> {
+    pub fn parse_annotations_attributes(attribute: &RuntimeVisibleAnnotations, class_loader: &ClassLoader) -> Fallible<Self> {
         let mut annotations = HashMap::with_capacity(attribute.annotations.len());
         for a in &attribute.annotations {
             let (class, annotation) = Annotation::parse(a, class_loader)?;
@@ -99,36 +81,20 @@ impl Constant {
 #[derive(Debug)]
 pub enum ElementValue {
     ConstValue(u8, Constant),
-    EnumConstValue {
-        enum_type: Arc<JavaClass>,
-        const_name: PooledStr,
-    },
+    EnumConstValue { enum_type: Arc<JavaClass>, const_name: PooledStr },
     ClassInfo(Arc<JavaClass>),
     AnnotationValue(Box<(Arc<JavaClass>, Annotation)>),
     ArrayValue(Vec<ElementValue>),
 }
 impl ElementValue {
-    pub fn parse(
-        elements: &attributes::ElementValue,
-        class_loader: &ClassLoader,
-    ) -> Fallible<Self> {
+    pub fn parse(elements: &attributes::ElementValue, class_loader: &ClassLoader) -> Fallible<Self> {
         Ok(match elements {
-            attributes::ElementValue::ConstValue(tag, constant) => {
-                ElementValue::ConstValue(*tag, Constant::parse(constant))
+            attributes::ElementValue::ConstValue(tag, constant) => ElementValue::ConstValue(*tag, Constant::parse(constant)),
+            attributes::ElementValue::EnumConstValue { type_name, const_name } => {
+                ElementValue::EnumConstValue { const_name: const_name.clone(), enum_type: class_loader.get_class(type_name)? }
             }
-            attributes::ElementValue::EnumConstValue {
-                type_name,
-                const_name,
-            } => ElementValue::EnumConstValue {
-                const_name: const_name.clone(),
-                enum_type: class_loader.get_class(type_name)?,
-            },
-            attributes::ElementValue::ClassInfo(type_name) => {
-                ElementValue::ClassInfo(class_loader.get_class(type_name)?)
-            }
-            attributes::ElementValue::AnnotationValue(annotation) => ElementValue::AnnotationValue(
-                Box::new(Annotation::parse(&*annotation, class_loader)?),
-            ),
+            attributes::ElementValue::ClassInfo(type_name) => ElementValue::ClassInfo(class_loader.get_class(type_name)?),
+            attributes::ElementValue::AnnotationValue(annotation) => ElementValue::AnnotationValue(Box::new(Annotation::parse(&*annotation, class_loader)?)),
             attributes::ElementValue::ArrayValue(array) => {
                 let mut elements = Vec::with_capacity(array.len());
                 for element in array {
@@ -143,18 +109,9 @@ impl ElementValue {
 pub trait AnnotatedElement {
     fn get_annotation(&self, annotation_class: &JavaClassRef) -> Fallible<Option<Arc<OOPRef>>>;
     fn get_annotations(&self) -> Fallible<Box<dyn Iterator<Item = Arc<OOPRef>>>>;
-    fn get_annotation_by_type(
-        &self,
-        annotation_class: &JavaClassRef,
-    ) -> Fallible<Option<Arc<OOPRef>>>;
-    fn get_declared_annotation(
-        &self,
-        annotation_class: &JavaClassRef,
-    ) -> Fallible<Option<Arc<OOPRef>>>;
+    fn get_annotation_by_type(&self, annotation_class: &JavaClassRef) -> Fallible<Option<Arc<OOPRef>>>;
+    fn get_declared_annotation(&self, annotation_class: &JavaClassRef) -> Fallible<Option<Arc<OOPRef>>>;
     fn get_declared_annotations(&self) -> Fallible<Box<dyn Iterator<Item = Arc<OOPRef>>>>;
-    fn get_declared_annotation_by_type(
-        &self,
-        annotation_class: &JavaClassRef,
-    ) -> Fallible<Option<Arc<OOPRef>>>;
+    fn get_declared_annotation_by_type(&self, annotation_class: &JavaClassRef) -> Fallible<Option<Arc<OOPRef>>>;
     fn is_annotation_present(&self, annotation_class: &JavaClassRef) -> Fallible<bool>;
 }

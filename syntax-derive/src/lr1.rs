@@ -566,12 +566,11 @@ impl<'t> StateMachineBuilder<'t> {
                 for (terminal, action) in node_cell.borrow().action_map.iter() {
                     match action {
                         Action::Shift(shift_node_cell) => {
-                            let node = shift_node_cell.borrow();
                             let outlooks: BTreeMap<_, _> = {
                                 new_items
                                     .iter()
                                     .filter_map(|(item, outlooks)| {
-                                        let mut outlooks = (*outlooks).clone();
+                                        let outlooks = (*outlooks).clone();
                                         if matches!(item.clone().next_symbol().as_ref(), Some(Symbol::Terminal(next_terminal)) if Some(next_terminal)==terminal.as_ref()) {
                                             if outlooks.is_empty() {
                                                 None

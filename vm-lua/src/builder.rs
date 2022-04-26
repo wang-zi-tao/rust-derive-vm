@@ -8,20 +8,20 @@ use e::{F64, U8};
 use failure::Fallible;
 use getset::Getters;
 use ghost_cell::{GhostCell, GhostToken};
-use jvm_core::{FunctionTypeBuilder, Slice, UnsizedArray};
-use jvm_core::{Pointer, TypeDeclaration};
 use log::{debug, trace};
 use runtime::code::{BlockBuilder, BuddyRegisterPool, FunctionBuilder, FunctionPack, RegisterPool};
 use runtime::instructions::bootstrap::MakeSlice;
+use vm_core::{FunctionTypeBuilder, Slice, UnsizedArray};
+use vm_core::{Pointer, TypeDeclaration};
 
 use runtime_extra as e;
 use runtime_extra::{NullableOptionImpl, Usize, I64};
 
 use std::cell::RefCell;
 
+use std::collections::HashMap;
 use std::mem::{size_of, MaybeUninit};
 use std::rc::Rc;
-use std::{collections::HashMap, slice::SliceIndex};
 
 type Register<T> = runtime::code::Register<T, BuddyRegisterPool>;
 #[derive(Clone)]
@@ -37,8 +37,8 @@ impl<'l> std::fmt::Debug for LuaRegister<'l> {
         match self {
             Self::Integer(arg0) => f.debug_tuple("Integer").field(arg0).finish(),
             Self::Float(arg0) => f.debug_tuple("Float").field(arg0).finish(),
-            Self::Function(arg0, arg1) => f.debug_tuple("Function").field(arg0).finish(),
-            Self::Value(arg0, arg1) => f.debug_tuple("Value").field(arg0).finish(),
+            Self::Function(arg0, _arg1) => f.debug_tuple("Function").field(arg0).finish(),
+            Self::Value(arg0, _arg1) => f.debug_tuple("Value").field(arg0).finish(),
         }
     }
 }

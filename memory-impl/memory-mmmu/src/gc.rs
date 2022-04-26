@@ -11,7 +11,7 @@ use util::CowArc;
 
 use crossbeam::atomic::AtomicConsume;
 use failure::{Fallible};
-use jvm_core::VMState;
+use vm_core::VMState;
 use os::mem::{MappedVM, Page};
 use tokio::sync::{Semaphore};
 

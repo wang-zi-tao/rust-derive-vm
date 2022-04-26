@@ -1,4 +1,4 @@
-use jvm_core::SymbolRef;
+use vm_core::SymbolRef;
 
 use crate::{metadata::Metadata, Object};
 use std::{

@@ -10,10 +10,6 @@ use classfile::{
 };
 use failure::format_err;
 use frame::{load, load_match, pop, pop_match, pop_match_slice, replice_cell};
-use jvm_core::{
-    BootstrapClassSetTrait, ClassLoaderRef, ClassLoaderTrait, HasModifier, JavaClassRef,
-    MemberTrait, Modifier, PrimitiveType, Type,
-};
 use memory::associate::AssociateStubPoolBuilderTrait;
 use std::{
     collections::{hash_map::Entry, HashMap},
@@ -22,6 +18,7 @@ use std::{
     mem::size_of,
 };
 use util::Result;
+use vm_core::{BootstrapClassSetTrait, ClassLoaderRef, ClassLoaderTrait, HasModifier, JavaClassRef, MemberTrait, Modifier, PrimitiveType, Type};
 type BytecodeVerifier = fn(
     Environment,
     &mut dyn FnMut(&mut Environment, u32) -> Result<()>,
@@ -58,64 +55,33 @@ declare_push!(DCONST_0, Double);
 declare_push!(DCONST_1, Double);
 
 fn next<T: Copy>(byte_code: &ByteCode, offset: &mut u32) -> Result<T> {
-    byte_code
-        .try_get(*offset as usize)
-        .map(|v| bswap(v))
-        .ok_or_else(|| format_err!("Invalid byte code format"))
-        .map(|v| {
-            *offset += size_of::<T>() as u32;
-            v
-        })
+    byte_code.try_get(*offset as usize).map(|v| bswap(v)).ok_or_else(|| format_err!("Invalid byte code format")).map(|v| {
+        *offset += size_of::<T>() as u32;
+        v
+    })
 }
 fn get_constant<'l>(constants: &'l Vec<Constant>, index: u16) -> Result<&'l Constant> {
-    constants
-        .get(index as usize)
-        .ok_or_else(|| format_err!("Invalid constant index:{}", index))
+    constants.get(index as usize).ok_or_else(|| format_err!("Invalid constant index:{}", index))
 }
-fn next_constant<'l, T: Copy>(
-    byte_code: &'l ByteCode,
-    offset: &'l mut u32,
-    constants: &'l Vec<Constant>,
-) -> Result<&'l Constant> {
+fn next_constant<'l, T: Copy>(byte_code: &'l ByteCode, offset: &'l mut u32, constants: &'l Vec<Constant>) -> Result<&'l Constant> {
     next::<u16>(byte_code, offset).and_then(|i: u16| get_constant(constants, i))
 }
-declare!(BIPUSH, |e, _, _, _| next::<u8>(e.byte_code, e.offset)
-    .and(push(e.frame, e.code.max_stack, Int)));
-declare!(SIPUSH, |e, _, _, _| next::<u16>(e.byte_code, e.offset)
-    .and(push(e.frame, e.code.max_stack, Int)));
+declare!(BIPUSH, |e, _, _, _| next::<u8>(e.byte_code, e.offset).and(push(e.frame, e.code.max_stack, Int)));
+declare!(SIPUSH, |e, _, _, _| next::<u16>(e.byte_code, e.offset).and(push(e.frame, e.code.max_stack, Int)));
 fn bootstrap_class_set<'l>(class_loader: &'l ClassLoaderRef) -> &'l dyn BootstrapClassSetTrait {
     class_loader.get_bootstrap_class_set()
 }
 fn frame_class_type(e: &Environment) -> FrameDataType {
-    Reference(
-        e.class_loader
-            .get_bootstrap_class_set()
-            .java_lang_class()
-            .clone(),
-    )
+    Reference(e.class_loader.get_bootstrap_class_set().java_lang_class().clone())
 }
 fn frame_string_type(e: &Environment) -> FrameDataType {
-    Reference(
-        e.class_loader
-            .get_bootstrap_class_set()
-            .java_lang_string()
-            .clone(),
-    )
+    Reference(e.class_loader.get_bootstrap_class_set().java_lang_string().clone())
 }
 fn frame_method_type_type(e: &Environment) -> FrameDataType {
-    Reference(
-        e.class_loader
-            .get_bootstrap_class_set()
-            .java_lang_invoke_method_type()
-            .clone(),
-    )
+    Reference(e.class_loader.get_bootstrap_class_set().java_lang_invoke_method_type().clone())
 }
 fn frame_method_handle_type(e: &Environment) -> FrameDataType {
-    Reference(
-        e.class_loader
-            .get_bootstrap_class_set()
-            .java_lang_invoke_method_handle(),
-    )
+    Reference(e.class_loader.get_bootstrap_class_set().java_lang_invoke_method_handle())
 }
 
 const LDC: BytecodeVerifier = |e, _, _, _| {
@@ -125,16 +91,9 @@ const LDC: BytecodeVerifier = |e, _, _, _| {
         Constant::ConstantFloat(_) => push(e.frame, e.code.max_stack, Float),
         Constant::ConstantClass(_) => push(e.frame, e.code.max_stack, frame_class_type(&e)),
         Constant::ConstantString(_) => push(e.frame, e.code.max_stack, frame_string_type(&e)),
-        Constant::ConstantMethodType(_) => {
-            push(e.frame, e.code.max_stack, frame_method_type_type(&e))
-        }
-        Constant::ConstantMethodHandle(_) => {
-            push(e.frame, e.code.max_stack, frame_method_handle_type(&e))
-        }
-        _ => Err(format_err!(
-            "{:?} can not use in instruction LDC.",
-            constant
-        )),
+        Constant::ConstantMethodType(_) => push(e.frame, e.code.max_stack, frame_method_type_type(&e)),
+        Constant::ConstantMethodHandle(_) => push(e.frame, e.code.max_stack, frame_method_handle_type(&e)),
+        _ => Err(format_err!("{:?} can not use in instruction LDC.", constant)),
     }
 };
 
@@ -145,16 +104,9 @@ const LDC_W: BytecodeVerifier = |e, _, _, _| {
         Constant::ConstantFloat(_) => push(e.frame, e.code.max_stack, Float),
         Constant::ConstantClass(_) => push(e.frame, e.code.max_stack, frame_class_type(&e)),
         Constant::ConstantString(_) => push(e.frame, e.code.max_stack, frame_string_type(&e)),
-        Constant::ConstantMethodType(_) => {
-            push(e.frame, e.code.max_stack, frame_method_type_type(&e))
-        }
-        Constant::ConstantMethodHandle(_) => {
-            push(e.frame, e.code.max_stack, frame_method_handle_type(&e))
-        }
-        _ => Err(format_err!(
-            "{:?} can not use in instruction LDC.",
-            constant
-        )),
+        Constant::ConstantMethodType(_) => push(e.frame, e.code.max_stack, frame_method_type_type(&e)),
+        Constant::ConstantMethodHandle(_) => push(e.frame, e.code.max_stack, frame_method_handle_type(&e)),
+        _ => Err(format_err!("{:?} can not use in instruction LDC.", constant)),
     }
 };
 
@@ -163,10 +115,7 @@ const LDC2_W: BytecodeVerifier = |e, _, _, _| {
     match constant {
         Constant::ConstantLong(_) => push(e.frame, e.code.max_stack, Long),
         Constant::ConstantDouble(_) => push(e.frame, e.code.max_stack, Double),
-        _ => Err(format_err!(
-            "{:?} can not use in instruction LDC.",
-            constant
-        )),
+        _ => Err(format_err!("{:?} can not use in instruction LDC.", constant)),
     }
 };
 
@@ -237,9 +186,7 @@ declare_load_primary_array!(DALOAD, double, Double);
 declare!(AALOAD, |e, _, _, _| {
     pop_match(e.frame, &Int)?;
     let array_type = pop(e.frame)?;
-    let class = array_type
-        .try_as_reference()
-        .ok_or_else(|| format_err!("not a reference"))?;
+    let class = array_type.try_as_reference().ok_or_else(|| format_err!("not a reference"))?;
     if let Some(element_class) = class.get_component_type()? {
         push(e.frame, e.code.max_stack, Reference(element_class.clone()))
     } else {
@@ -250,22 +197,11 @@ declare!(AALOAD, |e, _, _, _| {
 declare!(BALOAD, |e, _, _, _| {
     pop_match(e.frame, &Int)?;
     let array_type = pop(e.frame)?;
-    let class = array_type
-        .try_as_reference()
-        .ok_or_else(|| format_err!("not a reference"))?;
-    if !bootstrap_class_set(e.class_loader)
-        .byte()
-        .get_array_class()?
-        .equal(&**class)?
-        && !bootstrap_class_set(e.class_loader)
-            .boolean()
-            .get_array_class()?
-            .equal(&**class)?
+    let class = array_type.try_as_reference().ok_or_else(|| format_err!("not a reference"))?;
+    if !bootstrap_class_set(e.class_loader).byte().get_array_class()?.equal(&**class)?
+        && !bootstrap_class_set(e.class_loader).boolean().get_array_class()?.equal(&**class)?
     {
-        Err(format_err!(
-            "instruction BLOAD can not load element from class {:?}",
-            class
-        ))?;
+        Err(format_err!("instruction BLOAD can not load element from class {:?}", class))?;
     }
     Ok(())
 });
@@ -345,52 +281,27 @@ declare!(AASTORE, |e, _, _, _| {
     let element_type = pop(e.frame)?;
     pop_match(e.frame, &Int)?;
     let array_type = pop(e.frame)?;
-    let array_class = array_type
-        .try_as_reference()
-        .ok_or_else(|| format_err!("not a reference"))?;
-    let element_class = element_type
-        .try_as_reference()
-        .ok_or_else(|| format_err!("not a reference"))?;
+    let array_class = array_type.try_as_reference().ok_or_else(|| format_err!("not a reference"))?;
+    let element_class = element_type.try_as_reference().ok_or_else(|| format_err!("not a reference"))?;
     if array_class
         .get_component_type()?
-        .ok_or_else(|| {
-            format_err!(
-                "class {:?} is not assignable to class {:?}",
-                element_class,
-                array_class.get_component_type()
-            )
-        })
+        .ok_or_else(|| format_err!("class {:?} is not assignable to class {:?}", element_class, array_class.get_component_type()))
         .and_then(|i| element_class.is_assignable(&i))?
     {
         Ok(())
     } else {
-        Err(format_err!(
-            "class {:?} is not assignable to class {:?}",
-            element_class,
-            array_class.get_component_type()
-        ))
+        Err(format_err!("class {:?} is not assignable to class {:?}", element_class, array_class.get_component_type()))
     }
 });
 
 declare!(BASTORE, |e, _, _, _| {
     pop_match(e.frame, &Int)?;
     let array_type = pop(e.frame)?;
-    let class = array_type
-        .try_as_reference()
-        .ok_or_else(|| format_err!("not a reference"))?;
-    if !bootstrap_class_set(e.class_loader)
-        .byte()
-        .get_array_class()?
-        .equal(&**class)?
-        && !bootstrap_class_set(e.class_loader)
-            .boolean()
-            .get_array_class()?
-            .equal(&**class)?
+    let class = array_type.try_as_reference().ok_or_else(|| format_err!("not a reference"))?;
+    if !bootstrap_class_set(e.class_loader).byte().get_array_class()?.equal(&**class)?
+        && !bootstrap_class_set(e.class_loader).boolean().get_array_class()?.equal(&**class)?
     {
-        Err(format_err!(
-            "instruction BLOAD can not load element from class {:?}",
-            class
-        ))?;
+        Err(format_err!("instruction BLOAD can not load element from class {:?}", class))?;
     }
     Ok(())
 });
@@ -424,9 +335,7 @@ impl WideDataType {
     fn push_two_word(self, frame: &mut FrameState, max_stack: u16) -> Result<()> {
         match self {
             WideDataType::TwoWord(t) => push(frame, max_stack, t),
-            WideDataType::OneWord(t1, t2) => {
-                push(frame, max_stack, t1).and_then(|_| push(frame, max_stack, t2))
-            }
+            WideDataType::OneWord(t1, t2) => push(frame, max_stack, t1).and_then(|_| push(frame, max_stack, t2)),
         }
     }
 }
@@ -646,9 +555,7 @@ const TABLESWITCH: BytecodeVerifier = |mut e, on_jump, _, _| {
     let low = next::<u32>(e.byte_code, e.offset)?;
     let high = next::<u32>(e.byte_code, e.offset)?;
     if high < low {
-        Err(format_err!(
-            "The value low must be less than or equal to high."
-        ))?;
+        Err(format_err!("The value low must be less than or equal to high."))?;
     }
     for _ in low..=high {
         let target = next::<u32>(e.byte_code, e.offset)? + instruction_start_offset;
@@ -690,12 +597,7 @@ declare_return!(LRETURN, Long);
 declare_return!(FRETURN, Float);
 declare_return!(DRETURN, Double);
 const ARETURN: BytecodeVerifier = |mut e, _, _, on_return| {
-    let return_type = e
-        .method_ref
-        .get_return_type()
-        .ok_or_else(|| format_err!("the return type of the method is void"))?
-        .raw_class_owned()
-        .clone();
+    let return_type = e.method_ref.get_return_type().ok_or_else(|| format_err!("the return type of the method is void"))?.raw_class_owned().clone();
     pop_match(e.frame, &Reference(return_type.clone()))?;
     on_return(&mut e)
 };
@@ -711,11 +613,7 @@ const GET_STATIC: BytecodeVerifier = |e, _, _, _| {
     let constant = next_constant::<u8>(e.byte_code, e.offset, e.constants)?;
     match constant {
         Constant::ConstantFieldRef(f) => {
-            push(
-                e.frame,
-                e.code.max_stack,
-                FrameDataType::from_type_symbol(e.class_loader, &f.symbol.descriptor)?,
-            )?;
+            push(e.frame, e.code.max_stack, FrameDataType::from_type_symbol(e.class_loader, &f.symbol.descriptor)?)?;
             Ok(())
         }
         _ => Err(format_err!("except ConstantFieldRef, found {:?}", constant))?,
@@ -725,10 +623,7 @@ const PUT_STATIC: BytecodeVerifier = |e, _, _, _| {
     let constant = next_constant::<u8>(e.byte_code, e.offset, e.constants)?;
     match constant {
         Constant::ConstantFieldRef(f) => {
-            pop_match(
-                e.frame,
-                &FrameDataType::from_type_symbol(e.class_loader, &f.symbol.descriptor)?,
-            )?;
+            pop_match(e.frame, &FrameDataType::from_type_symbol(e.class_loader, &f.symbol.descriptor)?)?;
             Ok(())
         }
         _ => Err(format_err!("except ConstantFieldRef, found {:?}", constant))?,
@@ -738,15 +633,8 @@ const GET_FIELD: BytecodeVerifier = |e, _, _, _| {
     let constant = next_constant::<u8>(e.byte_code, e.offset, e.constants)?;
     match constant {
         Constant::ConstantFieldRef(f) => {
-            pop_match(
-                e.frame,
-                &FrameDataType::from_type_symbol(e.class_loader, &f.class.symbol)?,
-            )?;
-            push(
-                e.frame,
-                e.code.max_stack,
-                FrameDataType::from_type_symbol(e.class_loader, &f.symbol.descriptor)?,
-            )?;
+            pop_match(e.frame, &FrameDataType::from_type_symbol(e.class_loader, &f.class.symbol)?)?;
+            push(e.frame, e.code.max_stack, FrameDataType::from_type_symbol(e.class_loader, &f.symbol.descriptor)?)?;
             Ok(())
         }
         _ => Err(format_err!("except ConstantFieldRef, found {:?}", constant))?,
@@ -756,14 +644,8 @@ const PUT_FIELD: BytecodeVerifier = |e, _, _, _| {
     let constant = next_constant::<u8>(e.byte_code, e.offset, e.constants)?;
     match constant {
         Constant::ConstantFieldRef(f) => {
-            pop_match(
-                e.frame,
-                &FrameDataType::from_type_symbol(e.class_loader, &f.symbol.descriptor)?,
-            )?;
-            pop_match(
-                e.frame,
-                &FrameDataType::from_type_symbol(e.class_loader, &f.class.symbol)?,
-            )?;
+            pop_match(e.frame, &FrameDataType::from_type_symbol(e.class_loader, &f.symbol.descriptor)?)?;
+            pop_match(e.frame, &FrameDataType::from_type_symbol(e.class_loader, &f.class.symbol)?)?;
             Ok(())
         }
         _ => Err(format_err!("except ConstantFieldRef, found {:?}", constant))?,
@@ -782,9 +664,7 @@ fn verify_method_type(
         Err(format_err!("invalid method name:'<clinit>'"))?;
     }
     if !is_invoke_special && &*method_symbol.name == "<init>" {
-        Err(format_err!(
-            "method name '<init>' can only use by invokespecial"
-        ))?;
+        Err(format_err!("method name '<init>' can only use by invokespecial"))?;
     }
     for t in method_symbol.descriptor.parameters.iter().rev() {
         pop_match(frame, &FrameDataType::from_type_symbol(class_loader, &t)?)?;
@@ -798,11 +678,7 @@ fn verify_method_type(
                     Err(format_err!("invalid method name:'<init>'"))?;
                 }
                 if !class.is_assignable(&this_class)? {
-                    Err(format_err!(
-                        "invalid parameter type:{:?},except:{:?}",
-                        class,
-                        this_class
-                    ))?;
+                    Err(format_err!("invalid parameter type:{:?},except:{:?}", class, this_class))?;
                 }
             }
             UninitializedVariable(Some((class, p))) => {
@@ -810,93 +686,48 @@ fn verify_method_type(
                     Err(format_err!("invalid method name:{}", method_symbol.name))?;
                 }
                 if !class.is_assignable(&this_class)? {
-                    Err(format_err!(
-                        "invalid parameter type:{:?},except:{:?}",
-                        class,
-                        this_class
-                    ))?;
+                    Err(format_err!("invalid parameter type:{:?},except:{:?}", class, this_class))?;
                 }
-                replice_cell(
-                    frame,
-                    &UninitializedVariable(Some((class.clone(), p))),
-                    Reference(class),
-                );
+                replice_cell(frame, &UninitializedVariable(Some((class.clone(), p))), Reference(class));
             }
             UninitializedThis(class) => {
                 if &*method_symbol.name != "<init>" {
                     Err(format_err!("invalid method name:{}", method_symbol.name))?;
                 }
                 if !class.is_assignable(&this_class)? {
-                    Err(format_err!(
-                        "invalid parameter type:{:?},except:{:?}",
-                        class,
-                        this_class
-                    ))?;
+                    Err(format_err!("invalid parameter type:{:?},except:{:?}", class, this_class))?;
                 }
                 replice_cell(frame, &UninitializedThis(class.clone()), Reference(class));
             }
             _ => Err(format_err!("except reference,found:{:?}", cell))?,
         }
     }
-    push(
-        frame,
-        max_stack,
-        FrameDataType::from_type_symbol(class_loader, &method_symbol.descriptor.return_type)?,
-    )?;
+    push(frame, max_stack, FrameDataType::from_type_symbol(class_loader, &method_symbol.descriptor.return_type)?)?;
     Ok(())
 }
 const INVOKE_VIRTUAL: BytecodeVerifier = |e, _, _, _| {
     let constant = next_constant::<u8>(e.byte_code, e.offset, e.constants)?;
     match constant {
-        Constant::ConstantMethodRef(c) => verify_method_type(
-            e.frame,
-            e.class_loader,
-            e.code.max_stack,
-            &c.class.symbol,
-            &c.symbol,
-            Some(&c.class.symbol),
-            false,
-        ),
-        _ => Err(format_err!(
-            "except ConstantMethodRef, found {:?}",
-            constant
-        ))?,
+        Constant::ConstantMethodRef(c) => {
+            verify_method_type(e.frame, e.class_loader, e.code.max_stack, &c.class.symbol, &c.symbol, Some(&c.class.symbol), false)
+        }
+        _ => Err(format_err!("except ConstantMethodRef, found {:?}", constant))?,
     }
 };
 const INVOKE_SPECIAL: BytecodeVerifier = |e, _, _, _| {
     let constant = next_constant::<u8>(e.byte_code, e.offset, e.constants)?;
     match constant {
-        Constant::ConstantMethodRef(c) => verify_method_type(
-            e.frame,
-            e.class_loader,
-            e.code.max_stack,
-            &c.class.symbol,
-            &c.symbol,
-            Some(&c.class.symbol),
-            true,
-        ),
-        _ => Err(format_err!(
-            "except ConstantMethodRef, found {:?}",
-            constant
-        ))?,
+        Constant::ConstantMethodRef(c) => {
+            verify_method_type(e.frame, e.class_loader, e.code.max_stack, &c.class.symbol, &c.symbol, Some(&c.class.symbol), true)
+        }
+        _ => Err(format_err!("except ConstantMethodRef, found {:?}", constant))?,
     }
 };
 const INVOKE_STATIC: BytecodeVerifier = |e, _, _, _| {
     let constant = next_constant::<u8>(e.byte_code, e.offset, e.constants)?;
     match constant {
-        Constant::ConstantMethodRef(c) => verify_method_type(
-            e.frame,
-            e.class_loader,
-            e.code.max_stack,
-            &c.class.symbol,
-            &c.symbol,
-            None,
-            false,
-        ),
-        _ => Err(format_err!(
-            "except ConstantMethodRef, found {:?}",
-            constant
-        ))?,
+        Constant::ConstantMethodRef(c) => verify_method_type(e.frame, e.class_loader, e.code.max_stack, &c.class.symbol, &c.symbol, None, false),
+        _ => Err(format_err!("except ConstantMethodRef, found {:?}", constant))?,
     }
 };
 const INVOKE_INTERFACE: BytecodeVerifier = |e, _, _, _| {
@@ -909,21 +740,10 @@ const INVOKE_INTERFACE: BytecodeVerifier = |e, _, _, _| {
             if byte3 == 0 || byte4 != 0 {
                 Err(format_err!("illegal format"))?
             } else {
-                verify_method_type(
-                    e.frame,
-                    e.class_loader,
-                    e.code.max_stack,
-                    &c.class.symbol,
-                    &c.symbol,
-                    Some(&c.class.symbol),
-                    false,
-                )
+                verify_method_type(e.frame, e.class_loader, e.code.max_stack, &c.class.symbol, &c.symbol, Some(&c.class.symbol), false)
             }
         }
-        _ => Err(format_err!(
-            "except ConstantMethodRef, found {:?}",
-            constant
-        ))?,
+        _ => Err(format_err!("except ConstantMethodRef, found {:?}", constant))?,
     }
 };
 const INVOKE_DYNAMIC: BytecodeVerifier = |e, _, _, _| todo!();
@@ -940,11 +760,7 @@ const NEW: BytecodeVerifier = |e, _, _, _| {
             _ => {}
         }
     }
-    push(
-        e.frame,
-        e.code.max_stack,
-        UninitializedVariable(Some((java_class, constant_index))),
-    )?;
+    push(e.frame, e.code.max_stack, UninitializedVariable(Some((java_class, constant_index))))?;
     Ok(())
 };
 const NEW_ARRAY: BytecodeVerifier = |e, _, _, _| {
@@ -963,22 +779,14 @@ const NEW_ARRAY: BytecodeVerifier = |e, _, _, _| {
         }
     };
     pop_match(e.frame, &Int)?;
-    push(
-        e.frame,
-        e.code.max_stack,
-        Reference(component_class.get_array_class()?),
-    )?;
+    push(e.frame, e.code.max_stack, Reference(component_class.get_array_class()?))?;
     Ok(())
 };
 const ANE_ARRAY: BytecodeVerifier = |mut e, _, _, _| {
     let constant_index = next::<u16>(e.byte_code, e.offset)?;
     let component_class = resolve_class_or_interface(&mut e, constant_index)?;
     pop_match(e.frame, &Int)?;
-    push(
-        e.frame,
-        e.code.max_stack,
-        Reference(component_class.get_array_class()?),
-    )?;
+    push(e.frame, e.code.max_stack, Reference(component_class.get_array_class()?))?;
     Ok(())
 };
 const ARRAY_LENGTH: BytecodeVerifier = |e, _, _, _| {
@@ -994,10 +802,7 @@ const ATHROW: BytecodeVerifier = |mut e, _, on_athrow, _| {
     let constant_index = next::<u16>(e.byte_code, e.offset)?;
     let exception_class = resolve_class_or_interface(&mut e, constant_index)?;
     if !exception_class.is_assignable(&bootstrap_class_set(e.class_loader).java_lang_exception())? {
-        Err(format_err!(
-            "except a exception class,found {:?}",
-            exception_class
-        ))?;
+        Err(format_err!("except a exception class,found {:?}", exception_class))?;
     }
     on_athrow(&mut e, Some(&exception_class))?;
     Ok(())
@@ -1097,10 +902,7 @@ const MULTIA_NEW_ARRAY: BytecodeVerifier = |e, _, _, _| {
     let mut name_iter = name.bytes();
     for _ in 0..dimensions {
         if Some(b'[') != name_iter.next() {
-            Err(format_err!(
-                "array dimensions error, array type:{:?}",
-                array_class
-            ))?;
+            Err(format_err!("array dimensions error, array type:{:?}", array_class))?;
         }
     }
     for _ in 0..dimensions {
@@ -1133,11 +935,7 @@ const GOTO_W: BytecodeVerifier = |mut e, on_jump, _, _| {
 };
 const JSR_W: BytecodeVerifier = |mut e, on_jump, _, _| {
     let target_offset = next::<u32>(e.byte_code, e.offset)?;
-    let target = e
-        .offset
-        .checked_sub(1)
-        .and_then(|s| s.checked_add(target_offset))
-        .ok_or_else(|| format_err!("u32 overflow"))?;
+    let target = e.offset.checked_sub(1).and_then(|s| s.checked_add(target_offset)).ok_or_else(|| format_err!("u32 overflow"))?;
     push(e.frame, e.code.max_stack, ReturnAddress)?;
     on_jump(&mut e, target.try_into()?)
 };
@@ -1347,57 +1145,21 @@ const BYTECODE_VERIFIERS: [BytecodeVerifier; 202] = [
     JSR_W,
 ];
 pub fn verify_code(environment: &mut Environment) -> Result<()> {
-    let Environment {
-        offset,
-        byte_code,
-        code,
-        method,
-        method_ref,
-        constants,
-        class,
-        class_loader,
-        frame,
-    } = environment;
+    let Environment { offset, byte_code, code, method, method_ref, constants, class, class_loader, frame } = environment;
     let modifiers = method_ref.modifiers();
     let is_static = modifiers.is_static();
     let is_constructor = &*method.name == "<init>";
     let len = code.code.len();
-    let mut frame = FrameState::new(
-        (!is_static).then_some(class),
-        is_constructor,
-        code.max_stack,
-        code.max_locals,
-        &method_ref,
-    );
+    let mut frame = FrameState::new((!is_static).then_some(class), is_constructor, code.max_stack, code.max_locals, &method_ref);
 
     if let Some(Attribute::StackMapTable(frame_map)) = code.attributes.get("StackMapTable") {
         let mut offset = 0u32;
         let frame_map = FrameState::from_stack_map_table(
             frame_map,
-            &mut Environment {
-                offset: &mut offset,
-                byte_code,
-                code,
-                method,
-                method_ref,
-                constants,
-                class,
-                class_loader,
-                frame: &mut frame,
-            },
+            &mut Environment { offset: &mut offset, byte_code, code, method, method_ref, constants, class, class_loader, frame: &mut frame },
         )?;
         while (offset as usize) < len {
-            let mut environment = Environment {
-                offset: &mut offset,
-                byte_code,
-                code,
-                method,
-                method_ref,
-                constants,
-                class,
-                class_loader,
-                frame: &mut frame,
-            };
+            let mut environment = Environment { offset: &mut offset, byte_code, code, method, method_ref, constants, class, class_loader, frame: &mut frame };
             let instruction = next::<u8>(environment.byte_code, environment.offset)?;
             let byte_code_verifier = BYTECODE_VERIFIERS[instruction as usize];
             let mut on_jump = |e: &mut Environment, target: u32| {
@@ -1410,24 +1172,15 @@ pub fn verify_code(environment: &mut Environment) -> Result<()> {
             };
             let mut on_throw = |e: &mut Environment, _: Option<&JavaClassRef>| Ok(());
             let mut on_return = |e: &mut Environment| Ok(());
-            let is_wide_ret = instruction == code::byte_code::WIDE
-                && byte_code.get::<u8>((*environment.offset + 1) as usize) == code::byte_code::RET;
+            let is_wide_ret = instruction == code::byte_code::WIDE && byte_code.get::<u8>((*environment.offset + 1) as usize) == code::byte_code::RET;
 
             byte_code_verifier(
                 environment,
                 &mut on_jump as &mut dyn FnMut(&mut Environment, u32) -> Result<()>,
-                &mut on_throw
-                    as &mut dyn FnMut(&mut Environment, Option<&JavaClassRef>) -> Result<()>,
+                &mut on_throw as &mut dyn FnMut(&mut Environment, Option<&JavaClassRef>) -> Result<()>,
                 &mut on_return as &mut dyn FnMut(&mut Environment) -> Result<()>,
             )
-            .map_err(|e| {
-                format_err!(
-                    "error when verifier the code,offset:{},instruction:{:X},error:{:#?}",
-                    offset,
-                    instruction,
-                    e
-                )
-            })?;
+            .map_err(|e| format_err!("error when verifier the code,offset:{},instruction:{:X},error:{:#?}", offset, instruction, e))?;
             match instruction {
                 code::byte_code::GOTO
                 | code::byte_code::GOTO_W
@@ -1439,18 +1192,8 @@ pub fn verify_code(environment: &mut Environment) -> Result<()> {
                 | code::byte_code::DRETURN
                 | code::byte_code::FRETURN
                 | code::byte_code::ARETURN
-                | code::byte_code::RETURN => {
-                    frame = frame_map
-                        .get(&offset)
-                        .ok_or_else(|| format_err!("stack_map_frame not found"))?
-                        .clone()
-                }
-                code::byte_code::WIDE if is_wide_ret => {
-                    frame = frame_map
-                        .get(&offset)
-                        .ok_or_else(|| format_err!("stack_map_frame not found"))?
-                        .clone()
-                }
+                | code::byte_code::RETURN => frame = frame_map.get(&offset).ok_or_else(|| format_err!("stack_map_frame not found"))?.clone(),
+                code::byte_code::WIDE if is_wide_ret => frame = frame_map.get(&offset).ok_or_else(|| format_err!("stack_map_frame not found"))?.clone(),
                 _ => {
                     if offset as usize >= len {
                         Err(format_err!("invalid code format"))?;
@@ -1471,17 +1214,7 @@ pub fn verify_code(environment: &mut Environment) -> Result<()> {
         while let Some(next_offset) = buffer.pop() {
             let mut last_frame = frame.clone();
             let current_offset = offset;
-            let mut environment = Environment {
-                offset: &mut offset,
-                byte_code,
-                code,
-                method,
-                method_ref,
-                constants,
-                class,
-                class_loader,
-                frame: &mut frame,
-            };
+            let mut environment = Environment { offset: &mut offset, byte_code, code, method, method_ref, constants, class, class_loader, frame: &mut frame };
             *environment.offset = next_offset;
             let instruction = next::<u8>(environment.byte_code, environment.offset)?;
             let byte_code_verifier = BYTECODE_VERIFIERS[instruction as usize];
@@ -1501,24 +1234,15 @@ pub fn verify_code(environment: &mut Environment) -> Result<()> {
             };
             let mut on_throw = |e: &mut Environment, _: Option<&JavaClassRef>| Ok(());
             let mut on_return = |e: &mut Environment| Ok(());
-            let is_wide_ret = instruction == code::byte_code::WIDE
-                && byte_code.get::<u8>((*environment.offset + 1) as usize) == code::byte_code::RET;
+            let is_wide_ret = instruction == code::byte_code::WIDE && byte_code.get::<u8>((*environment.offset + 1) as usize) == code::byte_code::RET;
 
             byte_code_verifier(
                 environment,
                 &mut on_jump as &mut dyn FnMut(&mut Environment, u32) -> Result<()>,
-                &mut on_throw
-                    as &mut dyn FnMut(&mut Environment, Option<&JavaClassRef>) -> Result<()>,
+                &mut on_throw as &mut dyn FnMut(&mut Environment, Option<&JavaClassRef>) -> Result<()>,
                 &mut on_return as &mut dyn FnMut(&mut Environment) -> Result<()>,
             )
-            .map_err(|e| {
-                format_err!(
-                    "error when verifier the code,offset:{},instruction:{:X},error:{:#?}",
-                    offset,
-                    instruction,
-                    e
-                )
-            })?;
+            .map_err(|e| format_err!("error when verifier the code,offset:{},instruction:{:X},error:{:#?}", offset, instruction, e))?;
             match frame_state.entry(offset) {
                 Entry::Occupied(mut o) => {
                     if o.get_mut().merge_assign(&frame)? {

@@ -1,10 +1,10 @@
 use interpreter::Interpreter;
-use jvm_core::{FunctionTypeBuilder, ResourceFactory, TypeDeclaration, _ghost_cell::GhostToken};
 use memory_mmmu::MemoryMMMU;
 use runtime::{
-    code::{BlockBuilder, BuddyRegisterPool, FunctionBuilder},
+    code::{BlockBuilder, BuddyRegisterPool, FunctionBuilder, FunctionPack},
     instructions::bootstrap as b,
 };
+use vm_core::{ExecutableResourceTrait, FunctionTypeBuilder, ResourceFactory, TypeDeclaration, _ghost_cell::GhostToken};
 
 use runtime_extra as e;
 #[macro_use]
@@ -56,9 +56,18 @@ fn test() -> failure::Fallible<()> {
         })?;
         let function_resource = interpreter.create(pack)?;
 
+        // unsafe {
+        //     let function_address: *const unsafe extern "C" fn(i64, i64) -> i64 = function_resource.get_address();
+        //     let result = (*function_address)(1, 1);
+        //     assert_eq!(result, 2);
+        // }
         unsafe {
-            let function_address: *const unsafe extern "C" fn(i64, i64) -> i64 = function_resource.get_address();
-            let result = (*function_address)(1, 1);
+            let function_address0: *const unsafe extern "C" fn(i64, i64) -> i64 = function_resource.get_address();
+            let function_address: unsafe extern "C" fn(i64, i64) -> i64 = std::mem::transmute(
+                ExecutableResourceTrait::<FunctionPack<EvalInstructionSet>>::get_object(&*function_resource).unwrap().lock().unwrap().get_export_ptr(0),
+            );
+            assert_eq!(*function_address0, function_address);
+            let result = (function_address)(1, 1);
             assert_eq!(result, 2);
         }
         Ok(())

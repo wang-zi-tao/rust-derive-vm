@@ -1,12 +1,12 @@
 use std::{
-    mem::{size_of},
+    mem::size_of,
     ops::Add,
     ptr::NonNull,
     sync::{Arc, RwLock},
 };
 
 use crossbeam::atomic::AtomicCell;
-use jvm_core::{OOPTrait};
+use vm_core::OOPTrait;
 
 use crate::RegistedType;
 

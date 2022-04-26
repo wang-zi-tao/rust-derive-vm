@@ -15,7 +15,6 @@ use crossbeam::atomic::AtomicCell as CrossbeamAtomicCell;
 use dashmap::lock::{RwLock, RwLockReadGuard};
 use failure::{format_err, Fallible};
 use getset::{CopyGetters, Getters, MutGetters, Setters};
-use jvm_core::{ImplementLayoutTrait, TypeLayoutTrait};
 use std::{
     collections::{HashMap, HashSet},
     default::default,
@@ -23,6 +22,7 @@ use std::{
     sync::{Arc, Weak},
 };
 use util::PooledStr;
+use vm_core::{ImplementLayoutTrait, TypeLayoutTrait};
 #[derive(Debug, Copy, Clone)]
 pub enum LifeTime {
     Loaded,
@@ -96,9 +96,7 @@ impl JavaClassComponent {
         let modifiers = parse_modifiers(class_file.access_flags, &class_file.attributes);
         let annotations = Annotations::parse(&class_file.attributes, &**class_loader)?;
         let mut outer: Option<Arc<JavaClass>> = None;
-        if let Some(Attribute::InnerClasses(inner_class_attribute)) =
-            class_file.attributes.get("InnerClasses")
-        {
+        if let Some(Attribute::InnerClasses(inner_class_attribute)) = class_file.attributes.get("InnerClasses") {
             for i in &inner_class_attribute.calsses {
                 if &i.inner_class_info.symbol.name == &binary_name {
                     if let Some(outer_class_info) = &i.outer_class_info {
@@ -143,106 +141,54 @@ impl JavaClassComponent {
             let interface_class: Arc<JavaClass> = class_loader.get_class(&interface.symbol.name)?;
             layout_builder.implement(interface_class.get_layout()?.clone())?;
         }
-        let (type_layout, implement_layouts, field_layouts, executable_layouts) =
-            layout_builder.finish()?;
+        let (type_layout, implement_layouts, field_layouts, executable_layouts) = layout_builder.finish()?;
         let interface_count = class_file.interface.len();
-        let mut declared_interface = super_class_component
-            .map(|c| c.declared_interface().clone())
-            .unwrap_or_else(|| HashMap::with_capacity(interface_count));
+        let mut declared_interface = super_class_component.map(|c| c.declared_interface().clone()).unwrap_or_else(|| HashMap::with_capacity(interface_count));
         let mut interfaces = HashMap::with_capacity(interface_count);
-        for (interface, implement_layout) in class_file
-            .interface
-            .iter()
-            .zip(implement_layouts.into_iter())
-        {
+        for (interface, implement_layout) in class_file.interface.iter().zip(implement_layouts.into_iter()) {
             let interface = GenericType::from_symbol(class_loader, &interface.symbol.name)?;
-            interfaces.insert(
-                interface.get_class().clone(),
-                (interface.clone(), implement_layout.clone()),
-            );
+            interfaces.insert(interface.get_class().clone(), (interface.clone(), implement_layout.clone()));
             declared_interface.insert(interface.get_class().clone(), (interface, implement_layout));
         }
 
         let mut declared_fields: HashMap<_, _> = super_class_component
             .iter()
-            .map(|c| {
-                c.fields()
-                    .iter()
-                    .filter(|(n, f)| f.modifiers().is_final())
-                    .map(|(n, f)| (n.clone(), f.clone()))
-            })
+            .map(|c| c.fields().iter().filter(|(n, f)| f.modifiers().is_final()).map(|(n, f)| (n.clone(), f.clone())))
             .flatten()
             .collect();
         let mut fields = HashMap::with_capacity(class_file.fields.len());
         for (field, field_layout) in class_file.fields.iter().zip(field_layouts) {
-            let field = Arc::new(Field::new(
-                &java_class,
-                class_loader,
-                field,
-                field_layout,
-                class_graph,
-            )?);
+            let field = Arc::new(Field::new(&java_class, class_loader, field, field_layout, class_graph)?);
             fields.insert(field.name().clone(), field.clone());
             declared_fields.insert(field.name().clone(), field);
         }
 
         let method_count = class_file.methods.len();
-        let mut declared_executables = super_class_component
-            .map(|s| s.executables.clone())
-            .unwrap_or_else(|| HashMap::with_capacity(method_count));
+        let mut declared_executables = super_class_component.map(|s| s.executables.clone()).unwrap_or_else(|| HashMap::with_capacity(method_count));
         let mut executables = HashMap::with_capacity(method_count);
         for (method, executable_layout) in class_file.methods.iter().zip(executable_layouts) {
-            let executable = Arc::new(Executable::new(
-                super_class.clone(),
-                java_class.clone(),
-                class_loader,
-                method,
-                executable_layout,
-                class_graph,
-            )?);
+            let executable = Arc::new(Executable::new(super_class.clone(), java_class.clone(), class_loader, method, executable_layout, class_graph)?);
             let descriptor = method.descriptor.clone();
-            declared_executables.insert(
-                (executable.name().clone(), descriptor.clone()),
-                executable.clone(),
-            );
+            declared_executables.insert((executable.name().clone(), descriptor.clone()), executable.clone());
             executables.insert((executable.name().clone(), descriptor), executable);
         }
 
         let mut super_generic_type = if let Some(super_class_some) = &super_class {
-            Some(GenericType::from_non_primitive_class(
-                class_loader,
-                super_class_some.clone(),
-            )?)
+            Some(GenericType::from_non_primitive_class(class_loader, super_class_some.clone())?)
         } else {
             None
         };
-        let type_variables = if let Some(Attribute::Signature(signature_attribute)) =
-            class_file.attributes.get("Signature")
-        {
+        let type_variables = if let Some(Attribute::Signature(signature_attribute)) = class_file.attributes.get("Signature") {
             let signature = ClassSignature::from_attribute(signature_attribute)?;
-            let temporary_type_variables = TemporaryTypeTreeNode::new(
-                signature.type_parameters,
-                outer.as_ref().map(|o| &**o),
-                class_loader,
-            )?;
+            let temporary_type_variables = TemporaryTypeTreeNode::new(signature.type_parameters, outer.as_ref().map(|o| &**o), class_loader)?;
             let context = SignatureContext::new(&**class_loader, &temporary_type_variables);
             if let Some(super_generic_type) = &mut super_generic_type {
                 super_generic_type.set_type(signature.super_class.to_type(&context)?);
             }
             for interface_signature in signature.interfaces.bound {
                 let interface_type = interface_signature.to_type(&context)?;
-                let interface_class = Arc::downcast(
-                    interface_type
-                        .get_class(&**class_loader)?
-                        .clone()
-                        .as_any_arc(),
-                )
-                .unwrap();
-                interfaces
-                    .get_mut(&interface_class)
-                    .unwrap()
-                    .0
-                    .set_type(interface_type);
+                let interface_class = Arc::downcast(interface_type.get_class(&**class_loader)?.clone().as_any_arc()).unwrap();
+                interfaces.get_mut(&interface_class).unwrap().0.set_type(interface_type);
             }
             temporary_type_variables.type_variables
         } else {
@@ -257,9 +203,7 @@ impl JavaClassComponent {
         } else {
             (None, None)
         };
-        let mut extends_chain = super_class_component
-            .map(|s| s.extends_chain().clone())
-            .unwrap_or_else(|| Vec::new());
+        let mut extends_chain = super_class_component.map(|s| s.extends_chain().clone()).unwrap_or_else(|| Vec::new());
         extends_chain.push(java_class);
         Ok(Self {
             name,

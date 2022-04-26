@@ -1,17 +1,14 @@
 use self::OpCode::*;
 pub use super::{registers::*, xmm_registers::*};
 pub use condition::*;
-use jvm_core::ObjectBuilderInner;
 use std::convert::TryFrom;
+use vm_core::ObjectBuilderInner;
 pub use AddressOperand::*;
 pub use InstructionSet::*;
 pub use Scala::Scala1;
 type Label = usize;
 pub fn label_offset(target: Label, current: Label) -> i64 {
-    i64::try_from(target)
-        .unwrap()
-        .checked_sub(i64::try_from(current).unwrap())
-        .unwrap()
+    i64::try_from(target).unwrap().checked_sub(i64::try_from(current).unwrap()).unwrap()
 }
 pub struct JumpShortLabel(Label);
 impl JumpShortLabel {
@@ -99,9 +96,7 @@ impl<'l, 'a: 'l> Assembler<'l, 'a> {
 
     fn encode_sib(&mut self, scala: Scala, index: Register, base: Register) {
         let offset = self.builder.len() as u32;
-        self.push_u8(
-            scala.encode() << 6 | index.encode_shift(offset, 3) | base.encode_shift(offset, 0),
-        );
+        self.push_u8(scala.encode() << 6 | index.encode_shift(offset, 3) | base.encode_shift(offset, 0));
     }
 
     fn encode_modrm_code(&mut self, mode: u8, reg: u8, rm: u8) {
@@ -116,15 +111,7 @@ impl<'l, 'a: 'l> Assembler<'l, 'a> {
         self.encode_modrm_code(mode, reg.encode(), rm.encode());
     }
 
-    pub fn rex_prefix_code(
-        &mut self,
-        byte: bool,
-        reg_code_large_than_3: bool,
-        w: bool,
-        r: bool,
-        x: bool,
-        b: bool,
-    ) {
+    pub fn rex_prefix_code(&mut self, byte: bool, reg_code_large_than_3: bool, w: bool, r: bool, x: bool, b: bool) {
         let mut prefix = if w { prefix::REX_W } else { prefix::REX };
         if r {
             prefix |= prefix::REX_R;
@@ -141,25 +128,11 @@ impl<'l, 'a: 'l> Assembler<'l, 'a> {
     }
 
     pub fn rex_64_prefix(&mut self, rm: &Register, reg: &Register) {
-        self.rex_prefix_code(
-            false,
-            false,
-            true,
-            reg.code_between_8_and_15(),
-            false,
-            rm.code_between_8_and_15(),
-        );
+        self.rex_prefix_code(false, false, true, reg.code_between_8_and_15(), false, rm.code_between_8_and_15());
     }
 
     pub fn rex_32_prefix(&mut self, rm: &Register, reg: &Register) {
-        self.rex_prefix_code(
-            false,
-            false,
-            false,
-            reg.code_between_8_and_15(),
-            false,
-            rm.code_between_8_and_15(),
-        );
+        self.rex_prefix_code(false, false, false, reg.code_between_8_and_15(), false, rm.code_between_8_and_15());
     }
 
     pub fn rex_64_prefix_address(&mut self, reg: &Register, address: &AddressOperand) {
@@ -167,25 +140,11 @@ impl<'l, 'a: 'l> Assembler<'l, 'a> {
     }
 
     pub fn rex_64_prefix_reg(&mut self, reg: Register) {
-        self.rex_prefix_code(
-            false,
-            false,
-            true,
-            false,
-            false,
-            reg.code_between_8_and_15(),
-        );
+        self.rex_prefix_code(false, false, true, false, false, reg.code_between_8_and_15());
     }
 
     pub fn rex_32_prefix_reg(&mut self, reg: Register) {
-        self.rex_prefix_code(
-            false,
-            false,
-            false,
-            false,
-            false,
-            reg.code_between_8_and_15(),
-        );
+        self.rex_prefix_code(false, false, false, false, false, reg.code_between_8_and_15());
     }
 
     pub fn rex_32_prefix_address(&mut self, reg: &Register, address: &AddressOperand) {
@@ -197,36 +156,15 @@ impl<'l, 'a: 'l> Assembler<'l, 'a> {
     }
 
     fn rex_8_prefix_reg(&mut self, reg: &Register) {
-        self.rex_prefix_code(
-            true,
-            reg.code_between_4_and_15(),
-            false,
-            false,
-            false,
-            reg.code_between_8_and_15(),
-        );
+        self.rex_prefix_code(true, reg.code_between_4_and_15(), false, false, false, reg.code_between_8_and_15());
     }
 
     pub fn rex_32_prefix_xmm(&mut self, rm: &XMMRegister, reg: &XMMRegister) {
-        self.rex_prefix_code(
-            false,
-            false,
-            false,
-            reg.code_between_8_and_15(),
-            false,
-            rm.code_between_8_and_15(),
-        );
+        self.rex_prefix_code(false, false, false, reg.code_between_8_and_15(), false, rm.code_between_8_and_15());
     }
 
     pub fn rex_64_prefix_xmm(&mut self, rm: &XMMRegister, reg: &XMMRegister) {
-        self.rex_prefix_code(
-            false,
-            false,
-            false,
-            reg.code_between_8_and_15(),
-            false,
-            rm.code_between_8_and_15(),
-        );
+        self.rex_prefix_code(false, false, false, reg.code_between_8_and_15(), false, rm.code_between_8_and_15());
     }
 
     pub fn rex_64_prefix_xmm_address(&mut self, reg: &XMMRegister, address: &AddressOperand) {
@@ -272,36 +210,12 @@ pub enum AddressOperand {
     RipRelative(Label),
 }
 impl AddressOperand {
-    fn prefix_rex_code(
-        &self,
-        asm: &mut Assembler,
-        reg_extend: bool,
-        reg_code_large_than_3: bool,
-        wide: bool,
-        byte: bool,
-    ) {
+    fn prefix_rex_code(&self, asm: &mut Assembler, reg_extend: bool, reg_code_large_than_3: bool, wide: bool, byte: bool) {
         let (mut b, mut x) = (false, false);
         match self {
-            AddressOperand::Indirect(base) | AddressOperand::Relative(base, _) => {
-                b = base.code_between_8_and_15()
-            }
-            AddressOperand::Index { index, scala: _ }
-            | AddressOperand::IndexAndOffset {
-                index,
-                scala: _,
-                offset: _,
-            } => x = index.code_between_8_and_15(),
-            AddressOperand::BaseAndIndex {
-                base,
-                index,
-                scala: _,
-            }
-            | AddressOperand::BaseAndIndexAndOffset {
-                base,
-                index,
-                scala: _,
-                offset: _,
-            } => {
+            AddressOperand::Indirect(base) | AddressOperand::Relative(base, _) => b = base.code_between_8_and_15(),
+            AddressOperand::Index { index, scala: _ } | AddressOperand::IndexAndOffset { index, scala: _, offset: _ } => x = index.code_between_8_and_15(),
+            AddressOperand::BaseAndIndex { base, index, scala: _ } | AddressOperand::BaseAndIndexAndOffset { base, index, scala: _, offset: _ } => {
                 b = base.code_between_8_and_15();
                 x = index.code_between_8_and_15();
             }
@@ -312,23 +226,11 @@ impl AddressOperand {
     }
 
     fn rex_prefix(&self, asm: &mut Assembler, reg: &Register, wide: bool, byte: bool) {
-        self.prefix_rex_code(
-            asm,
-            reg.code_between_8_and_15(),
-            reg.code_between_4_and_15(),
-            wide,
-            byte,
-        );
+        self.prefix_rex_code(asm, reg.code_between_8_and_15(), reg.code_between_4_and_15(), wide, byte);
     }
 
     fn prefix_rex_xmm(&self, asm: &mut Assembler, reg: &XMMRegister, wide: bool, byte: bool) {
-        self.prefix_rex_code(
-            asm,
-            reg.code_between_8_and_15(),
-            reg.code_between_4_and_15(),
-            wide,
-            byte,
-        );
+        self.prefix_rex_code(asm, reg.code_between_8_and_15(), reg.code_between_4_and_15(), wide, byte);
     }
 
     fn encode_xmm(&self, reg: XMMRegister, asm: &mut Assembler) {
@@ -406,11 +308,7 @@ impl AddressOperand {
                 asm.encode_sib(*scala, *index, RBP);
                 asm.push_u32(0);
             }
-            AddressOperand::IndexAndOffset {
-                index,
-                scala,
-                offset,
-            } => {
+            AddressOperand::IndexAndOffset { index, scala, offset } => {
                 assert!(index != &RSP, "illegal addressing mode");
                 if *offset == 0 {
                     // [index*scale + offset]
@@ -444,12 +342,7 @@ impl AddressOperand {
                     }
                 }
             }
-            AddressOperand::BaseAndIndexAndOffset {
-                base,
-                index,
-                scala,
-                offset,
-            } => {
+            AddressOperand::BaseAndIndexAndOffset { base, index, scala, offset } => {
                 assert!(index != &RSP, "illegal addressing mode");
                 if *offset == 0 && base != &RBP && base != &R13 {
                     // [base + index*scale]
@@ -821,14 +714,7 @@ impl Mnemonic {
             }
             U16PrefixREXW(_, prefix, _) => {
                 asm.push_u8(*prefix);
-                asm.rex_prefix_code(
-                    false,
-                    false,
-                    true,
-                    src.code_between_8_and_15(),
-                    false,
-                    dst.code_between_8_and_15(),
-                );
+                asm.rex_prefix_code(false, false, true, src.code_between_8_and_15(), false, dst.code_between_8_and_15());
             }
             _ => {}
         }
@@ -856,14 +742,7 @@ impl Mnemonic {
             }
             U16PrefixREXW(_, prefix, _) => {
                 asm.push_u8(*prefix);
-                asm.rex_prefix_code(
-                    false,
-                    false,
-                    true,
-                    src.code_between_8_and_15(),
-                    false,
-                    dst.code_between_8_and_15(),
-                );
+                asm.rex_prefix_code(false, false, true, src.code_between_8_and_15(), false, dst.code_between_8_and_15());
             }
             _ => {}
         }
@@ -912,67 +791,26 @@ macro_rules! define_mnemonic {
 }
 macro_rules! define_mnemonic_sse_f32 {
     ($name:tt,$opcode:expr) => {
-        pub const $name: Mnemonic = Mnemonic {
-            xmm_from_xmm: Some($opcode),
-            xmm_from_m32: Some($opcode),
-            xmm_from_r32: Some($opcode),
-            ..MNEMONIC_NONE
-        };
+        pub const $name: Mnemonic = Mnemonic { xmm_from_xmm: Some($opcode), xmm_from_m32: Some($opcode), xmm_from_r32: Some($opcode), ..MNEMONIC_NONE };
     };
 }
 macro_rules! define_mnemonic_sse_f64 {
     ($name:tt,$opcode:expr) => {
-        pub const $name: Mnemonic = Mnemonic {
-            xmm_from_xmm: Some($opcode),
-            xmm_from_m64: Some($opcode),
-            xmm_from_r64: Some($opcode),
-            ..MNEMONIC_NONE
-        };
+        pub const $name: Mnemonic = Mnemonic { xmm_from_xmm: Some($opcode), xmm_from_m64: Some($opcode), xmm_from_r64: Some($opcode), ..MNEMONIC_NONE };
     };
 }
 macro_rules! define_mnemonic_dst_only {
     ($name:tt,$opcode:expr) => {
-        pub const $name: Mnemonic = Mnemonic {
-            dst_only: Some($opcode),
-            ..MNEMONIC_NONE
-        };
+        pub const $name: Mnemonic = Mnemonic { dst_only: Some($opcode), ..MNEMONIC_NONE };
     };
 }
-define_mnemonic!(
-    ADD,
-    U8(X86_64, 0x01),
-    U8Extend(X86_64, 0x81, opcode_extension::ADD << 3)
-);
-define_mnemonic!(
-    OR,
-    U8(X86_64, 0x0b),
-    U8Extend(X86_64, 0x81, opcode_extension::OR << 3)
-);
-define_mnemonic!(
-    ADC,
-    U8(X86_64, 0x11),
-    U8Extend(X86_64, 0x81, opcode_extension::ADC << 3)
-);
-define_mnemonic!(
-    AND,
-    U8(X86_64, 0x23),
-    U8Extend(X86_64, 0x81, opcode_extension::AND << 3)
-);
-define_mnemonic!(
-    SUB,
-    U8(X86_64, 0x29),
-    U8Extend(X86_64, 0x81, opcode_extension::SUB << 3)
-);
-define_mnemonic!(
-    XOR,
-    U8(X86_64, 0x33),
-    U8Extend(X86_64, 0x81, opcode_extension::XOR << 3)
-);
-define_mnemonic!(
-    CMP,
-    U8(X86_64, 0x39),
-    U8Extend(X86_64, 0x81, opcode_extension::CMP << 3)
-);
+define_mnemonic!(ADD, U8(X86_64, 0x01), U8Extend(X86_64, 0x81, opcode_extension::ADD << 3));
+define_mnemonic!(OR, U8(X86_64, 0x0b), U8Extend(X86_64, 0x81, opcode_extension::OR << 3));
+define_mnemonic!(ADC, U8(X86_64, 0x11), U8Extend(X86_64, 0x81, opcode_extension::ADC << 3));
+define_mnemonic!(AND, U8(X86_64, 0x23), U8Extend(X86_64, 0x81, opcode_extension::AND << 3));
+define_mnemonic!(SUB, U8(X86_64, 0x29), U8Extend(X86_64, 0x81, opcode_extension::SUB << 3));
+define_mnemonic!(XOR, U8(X86_64, 0x33), U8Extend(X86_64, 0x81, opcode_extension::XOR << 3));
+define_mnemonic!(CMP, U8(X86_64, 0x39), U8Extend(X86_64, 0x81, opcode_extension::CMP << 3));
 
 define_mnemonic_sse_f64!(MULSD, U16Prefix(SSE2, 0xf2, 0x59));
 define_mnemonic_sse_f32!(MULSS, U16Prefix(SSE, 0xf3, 0x59));
@@ -1001,38 +839,16 @@ pub const CVTTSD2SI: Mnemonic = Mnemonic {
     r_from_m: Some(U16Prefix(SSE2, 0xf2, 0x2c)),
     ..MNEMONIC_NONE
 };
-pub const CVTSS2SD: Mnemonic = Mnemonic {
-    xmm_from_xmm: Some(U16Prefix(SSE2, 0xf3, 0x5a)),
-    xmm_from_m32: Some(U16Prefix(SSE2, 0xf3, 0x5a)),
-    ..MNEMONIC_NONE
-};
-pub const CVTSD2SS: Mnemonic = Mnemonic {
-    xmm_from_xmm: Some(U16Prefix(SSE2, 0xf2, 0x5a)),
-    xmm_from_m64: Some(U16Prefix(SSE2, 0xf2, 0x5a)),
-    ..MNEMONIC_NONE
-};
+pub const CVTSS2SD: Mnemonic = Mnemonic { xmm_from_xmm: Some(U16Prefix(SSE2, 0xf3, 0x5a)), xmm_from_m32: Some(U16Prefix(SSE2, 0xf3, 0x5a)), ..MNEMONIC_NONE };
+pub const CVTSD2SS: Mnemonic = Mnemonic { xmm_from_xmm: Some(U16Prefix(SSE2, 0xf2, 0x5a)), xmm_from_m64: Some(U16Prefix(SSE2, 0xf2, 0x5a)), ..MNEMONIC_NONE };
 // define_mnemonic_sse_f32!(CVTTSS2SI,U16Prefix(SSE,0xf3,0x2c));
 // define_mnemonic_sse_f64!(CVTTSD2SI,U16Prefix(SSE,0xf2,0x2c));
-pub const IMUL: Mnemonic = Mnemonic {
-    r_from_r_and_i32: Some(U8(X86_64, 0x69)),
-    r_from_r_and_i8: Some(U8(X86_64, 0x6b)),
-    r_from_r_or_m: Some(U16(X86_64, 0xaf)),
-    ..MNEMONIC_NONE
-};
-pub const IDIV: Mnemonic = Mnemonic {
-    r: Some(U8Extend(X86_64, 0xf7, 7 << 3)),
-    ..MNEMONIC_NONE
-};
-pub const CDQ: Mnemonic = Mnemonic {
-    no_operand_32: Some(U8(X86_64, 0x99)),
-    ..MNEMONIC_NONE
-};
+pub const IMUL: Mnemonic =
+    Mnemonic { r_from_r_and_i32: Some(U8(X86_64, 0x69)), r_from_r_and_i8: Some(U8(X86_64, 0x6b)), r_from_r_or_m: Some(U16(X86_64, 0xaf)), ..MNEMONIC_NONE };
+pub const IDIV: Mnemonic = Mnemonic { r: Some(U8Extend(X86_64, 0xf7, 7 << 3)), ..MNEMONIC_NONE };
+pub const CDQ: Mnemonic = Mnemonic { no_operand_32: Some(U8(X86_64, 0x99)), ..MNEMONIC_NONE };
 
-pub const TEST: Mnemonic = Mnemonic {
-    r_or_m_from_r: Some(U8(X86_64, 0x85)),
-    r_from_i32: Some(U8Extend(X86_64, 0xf7, 0 << 3)),
-    ..MNEMONIC_NONE
-};
+pub const TEST: Mnemonic = Mnemonic { r_or_m_from_r: Some(U8(X86_64, 0x85)), r_from_i32: Some(U8Extend(X86_64, 0xf7, 0 << 3)), ..MNEMONIC_NONE };
 define_mnemonic_dst_only!(NEG, U8Extend(X86_64, 0xf7, 3 << 3));
 define_mnemonic_dst_only!(SAR, U8Extend(X86_64, 0xd3, 7 << 3));
 define_mnemonic_dst_only!(SHL, U8Extend(X86_64, 0xd3, 6 << 3));
@@ -1063,30 +879,12 @@ pub const MOVD: Mnemonic = Mnemonic {
     xmm_from_r32: Some(U16Prefix(SSE2, 0x66, 0x6e)),
     ..MNEMONIC_NONE
 };
-pub const MOVSX_16: Mnemonic = Mnemonic {
-    r_from_r_or_m: Some(U16(X86_64, 0xB7)),
-    ..MNEMONIC_NONE
-};
-pub const MOVSX_8: Mnemonic = Mnemonic {
-    r_from_r_or_m: Some(U16(X86_64, 0xB6)),
-    ..MNEMONIC_NONE
-};
-pub const MOVZX_16: Mnemonic = Mnemonic {
-    r_from_r_or_m: Some(U16(X86_64, 0xBf)),
-    ..MNEMONIC_NONE
-};
-pub const MOVZX_8: Mnemonic = Mnemonic {
-    r_from_r_or_m: Some(U16(X86_64, 0xBe)),
-    ..MNEMONIC_NONE
-};
-pub const PUSH: Mnemonic = Mnemonic {
-    r: Some(U8Narrow(X86_64, 0x50)),
-    ..MNEMONIC_NONE
-};
-pub const POP: Mnemonic = Mnemonic {
-    dst_only: Some(U8Narrow(X86_64, 0x58)),
-    ..MNEMONIC_NONE
-};
+pub const MOVSX_16: Mnemonic = Mnemonic { r_from_r_or_m: Some(U16(X86_64, 0xB7)), ..MNEMONIC_NONE };
+pub const MOVSX_8: Mnemonic = Mnemonic { r_from_r_or_m: Some(U16(X86_64, 0xB6)), ..MNEMONIC_NONE };
+pub const MOVZX_16: Mnemonic = Mnemonic { r_from_r_or_m: Some(U16(X86_64, 0xBf)), ..MNEMONIC_NONE };
+pub const MOVZX_8: Mnemonic = Mnemonic { r_from_r_or_m: Some(U16(X86_64, 0xBe)), ..MNEMONIC_NONE };
+pub const PUSH: Mnemonic = Mnemonic { r: Some(U8Narrow(X86_64, 0x50)), ..MNEMONIC_NONE };
+pub const POP: Mnemonic = Mnemonic { dst_only: Some(U8Narrow(X86_64, 0x58)), ..MNEMONIC_NONE };
 pub fn mov_m_from_r16(asm: &mut Assembler, dst: AddressOperand, src: Register) {
     asm.push_u8(0x66);
     dst.rex_prefix(asm, &src, false, false);
@@ -1116,14 +914,8 @@ pub fn movaps_xmm_from_xmm(asm: &mut Assembler, dst: XMMRegister, src: XMMRegist
     asm.push_u8(0x28);
     asm.encode_modrm_xmm(3, dst, src);
 }
-pub const CMOVNP: Mnemonic = Mnemonic {
-    r_from_r_or_m: Some(U16(X86_64, 0x4B)),
-    ..MNEMONIC_NONE
-};
-pub const CMOVBE: Mnemonic = Mnemonic {
-    r_from_r_or_m: Some(U16(X86_64, 0x46)),
-    ..MNEMONIC_NONE
-};
+pub const CMOVNP: Mnemonic = Mnemonic { r_from_r_or_m: Some(U16(X86_64, 0x4B)), ..MNEMONIC_NONE };
+pub const CMOVBE: Mnemonic = Mnemonic { r_from_r_or_m: Some(U16(X86_64, 0x46)), ..MNEMONIC_NONE };
 pub fn jump_conditional_to(asm: &mut Assembler, condition: Condition, target: &Label) {
     let instruction_start = asm.relatively_label();
     let offset = label_offset(*target, instruction_start);
@@ -1159,45 +951,25 @@ pub fn set_condition(asm: &mut Assembler, condition: Condition, dst: Register) {
     asm.push_u8(0x90 | condition.encode());
     asm.push_u8(0xc0 | dst.encode());
 }
-pub fn mov_conditional_r32_from_r(
-    asm: &mut Assembler,
-    condition: Condition,
-    dst: Register,
-    src: Register,
-) {
+pub fn mov_conditional_r32_from_r(asm: &mut Assembler, condition: Condition, dst: Register, src: Register) {
     asm.rex_32_prefix(&src, &dst);
     asm.push_u8(0x0f);
     asm.push_u8(0x40 | condition.encode());
     asm.encode_modrm(3, dst, src);
 }
-pub fn mov_conditional_r64_from_r(
-    asm: &mut Assembler,
-    condition: Condition,
-    dst: Register,
-    src: Register,
-) {
+pub fn mov_conditional_r64_from_r(asm: &mut Assembler, condition: Condition, dst: Register, src: Register) {
     asm.rex_64_prefix(&src, &dst);
     asm.push_u8(0x0f);
     asm.push_u8(0x40 | condition.encode());
     asm.encode_modrm(3, dst, src);
 }
-pub fn mov_conditional_r64_from_m(
-    asm: &mut Assembler,
-    condition: Condition,
-    dst: Register,
-    src: AddressOperand,
-) {
+pub fn mov_conditional_r64_from_m(asm: &mut Assembler, condition: Condition, dst: Register, src: AddressOperand) {
     src.rex_prefix(asm, &dst, true, false);
     asm.push_u8(0x0f);
     asm.push_u8(0x40 | condition.encode());
     src.encode(dst, asm);
 }
-pub fn cmpss_condition(
-    asm: &mut Assembler,
-    condition: Condition,
-    op1: XMMRegister,
-    op2: XMMRegister,
-) {
+pub fn cmpss_condition(asm: &mut Assembler, condition: Condition, op1: XMMRegister, op2: XMMRegister) {
     asm.push_u8(0xf3);
     asm.push_u8(0x0f);
     asm.push_u8(0xc2);
@@ -1221,10 +993,7 @@ pub fn shl_r64_from_i8(asm: &mut Assembler, dst: Register, imme: i8) {
     asm.encode_modrm_code(3, 4, dst.encode());
     asm.push_i8(imme);
 }
-pub const CALL: Mnemonic = Mnemonic {
-    dst_only: Some(U8Extend(X86_64, 0xff, 2)),
-    ..MNEMONIC_NONE
-};
+pub const CALL: Mnemonic = Mnemonic { dst_only: Some(U8Extend(X86_64, 0xff, 2)), ..MNEMONIC_NONE };
 pub fn ret(asm: &mut Assembler) {
     asm.push_u8(0xc3);
 }

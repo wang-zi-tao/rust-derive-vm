@@ -24,7 +24,7 @@ use util::AsAny;
 
 use dashmap::{mapref::entry::Entry, DashMap};
 use failure::{format_err, Fallible};
-use jvm_core::{Component, ExecutableResourceTrait, Module, Resource, ResourceFactory, ResourceState, RuntimeTrait, SymbolRef};
+use vm_core::{Component, ExecutableResourceTrait, Module, Resource, ResourceFactory, ResourceState, RuntimeTrait, SymbolRef};
 pub trait RuntimeFilter: Module {
     fn get_input_type_id(&self) -> TypeId;
     fn consume<'l>(&'l self, esource_input: Arc<dyn Any + Send + Sync>) -> Fallible<SmallVec<[(Arc<dyn Any + Send + Sync>, &'l dyn RuntimeFilter); 1]>>;
@@ -39,7 +39,7 @@ pub struct ExecutableResourceImpl {
     pub symbol_ref: SymbolRef,
 }
 impl<T> ExecutableResourceTrait<T> for ExecutableResourceImpl {
-    fn get_object(&self) -> Fallible<jvm_core::ObjectRef> {
+    fn get_object(&self) -> Fallible<vm_core::ObjectRef> {
         todo!()
     }
 }
@@ -52,7 +52,7 @@ impl ExecutableResourceImpl {
         Self { inner: RwLock::new(ExecutableResourceInner { state: ResourceState::Defined }), symbol_ref: SymbolRef::new() }
     }
 
-    fn get_state(&self) -> jvm_core::ResourceState {
+    fn get_state(&self) -> vm_core::ResourceState {
         self.inner.read().unwrap().state.clone()
     }
 }

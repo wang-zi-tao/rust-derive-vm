@@ -7,7 +7,6 @@ use crate::{
 use classfile::ClassFile;
 use dashmap::{mapref::entry::Entry, DashMap};
 use failure::{format_err, Error, Fallible};
-use jvm_core::Component;
 use std::{
     any::Any,
     collections::HashMap,
@@ -16,6 +15,7 @@ use std::{
     sync::{Arc, RwLock, Weak},
 };
 use util::PooledStr;
+use vm_core::Component;
 pub trait ClassFileLoader: Sync + Send + Debug {
     fn load_class(&self, name: &str, class_loader: &Arc<ClassLoader>) -> Fallible<Arc<JavaClass>>;
 }
@@ -46,10 +46,7 @@ impl ClassLoader {
     }
 
     pub fn get_package(self: &Arc<ClassLoader>, name: &str) -> Arc<Package> {
-        self.packages
-            .get(name)
-            .map(|p| p.clone())
-            .unwrap_or_else(|| Arc::new(Package::new(self.self_ref(), name.into())))
+        self.packages.get(name).map(|p| p.clone()).unwrap_or_else(|| Arc::new(Package::new(self.self_ref(), name.into())))
     }
 
     pub fn get_class(&self, name: &str) -> Fallible<Arc<JavaClass>> {
@@ -74,17 +71,9 @@ impl ClassLoader {
         Ok(class)
     }
 
-    pub fn define_class(
-        self: &Arc<Self>,
-        name_option: Option<PooledStr>,
-        class_file: &[u8],
-    ) -> Fallible<Arc<JavaClass>> {
+    pub fn define_class(self: &Arc<Self>, name_option: Option<PooledStr>, class_file: &[u8]) -> Fallible<Arc<JavaClass>> {
         let parsed_class_file = ClassFile::new(&*class_file)?;
-        let name = if let Some(name) = name_option {
-            name
-        } else {
-            parsed_class_file.this_class.symbol.name.clone()
-        };
+        let name = if let Some(name) = name_option { name } else { parsed_class_file.this_class.symbol.name.clone() };
         let class = self.get_class(&name)?;
         {
             let _guard = class.load_lock()?;

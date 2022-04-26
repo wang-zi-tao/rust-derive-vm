@@ -1,5 +1,5 @@
 [package]
-name = "jvm"
+name = "vm-core"
 version = "0.1.0"
 authors = ["王子陶 <2451355023@qq.com>"]
 edition = "2018"
@@ -7,16 +7,19 @@ edition = "2018"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-arch={path="../arch"}
-class-graph={path="../class-graph"}
-classfile={path="../classfile"}
-os={path="../os"}
 util={path="../util" }
-jvm-core={path="../jvm-core"}
-memory-mmmu={path="../memory-impl/memory-mmmu"}
-runtime={path="../runtime"}
-runtime-memory={path="../runtime-memory/runtime-memory-mmmu"}
+util-derive={path="../util-derive"}
 failure = "0.1.8"
 failure_derive = "0.1.8"
+hashbrown = "0.8.2"
+dashmap ="3.11.7"
+getset = "0.1.2"
+crossbeam = "0.8.0"
 log = "0.4.0"
 env_logger = "0.6.0"
+smallvec = "1.6.1"
+async-trait = "0.1.51"
+tokio = {version="1.9.0",features=["full"]}
+derive_builder = "0.10.2"
+ghost-cell = "0.2.2"
+lazy_static="1.4.0"

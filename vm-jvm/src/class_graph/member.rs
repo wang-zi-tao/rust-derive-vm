@@ -1,8 +1,8 @@
 use std::sync::{Arc, Weak};
 
 use crate::{annotations::Annotations, class::JavaClass};
-use jvm_core::OOPTrait;
 use util::PooledStr;
+use vm_core::OOPTrait;
 pub const DECLARED: i32 = 0;
 pub const PUBLIC: i32 = 1;
 pub trait Member: Send + Sync {

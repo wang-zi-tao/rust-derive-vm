@@ -13,7 +13,7 @@ pkgs.mkShell {
     pkg-config
     (fenix.fromToolchainFile {
       file = ./rust-toolchain.toml;
-      sha256 = "sha256-x4VxrM7k/pHiIDCS0M6lBqsdezuDC605U6Lwz31qcGU=";
+      sha256 = "sha256-P5uJWx31Xpd9eYFylERRnRVaCtGunhICxmUQU/aMCsY=";
     })
   ];
   LLVM_SYS_100_PREFIX = "${pkgs.llvmPackages_10.llvm}";

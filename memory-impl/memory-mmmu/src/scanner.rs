@@ -2,15 +2,15 @@ use std::{cell::RefCell, ptr::NonNull, rc::Rc, sync::Arc, thread::JoinHandle};
 
 use crossbeam_deque::{Injector, Worker};
 use failure::{format_err, Error, Fail, Fallible};
-use jvm_core::{
-    EnumTagLayout, ExecutableResourceTrait, FunctionTypeBuilder, Native, ObjectRef, Pointer, Resource, RuntimeTrait, SmallElementLayout, Type, TypeDeclaration,
-    TypeLayout, TypeResource, UnsafeSymbolRef, _ghost_cell::GhostToken,
-};
 use runtime::code::{BlockBuilder, FunctionBuilder, FunctionPack, LinearRegisterPool, Register, RegisterPool};
 use runtime_derive::make_instruction_set;
 use runtime_extra as e;
 use runtime_extra::{Usize, I8};
 use util::CowArc;
+use vm_core::{
+    EnumTagLayout, ExecutableResourceTrait, FunctionTypeBuilder, Native, ObjectRef, Pointer, Resource, RuntimeTrait, SmallElementLayout, Type, TypeDeclaration,
+    TypeLayout, TypeResource, UnsafeSymbolRef, _ghost_cell::GhostToken,
+};
 
 use crate::{gc::GCPlan, mark::GlobalMarkSet, metadata::TypeMetadata, MemoryMMMU, RegistedType};
 
@@ -21,10 +21,10 @@ mod i {
     use super::GCWorker;
     use std::num::NonZeroU64;
 
-    use jvm_core::{Array, Native, Pointer, TypeDeclaration};
     use runtime::instructions::bootstrap::*;
     use runtime_derive::{make_instruction, make_native_function, Instruction, TypeDeclaration};
     use runtime_extra::*;
+    use vm_core::{Array, Native, Pointer, TypeDeclaration};
 
     #[derive(TypeDeclaration)]
     #[make_type(make_instruction)]
@@ -584,8 +584,8 @@ impl ScanPath {
 
     pub fn scan(plan: &GCPlan, ty: &Type) -> Fallible<Option<Self>> {
         Ok(match ty {
-            jvm_core::Type::Tuple(t) => match t {
-                jvm_core::Tuple::Normal(fields) => {
+            vm_core::Type::Tuple(t) => match t {
+                vm_core::Tuple::Normal(fields) => {
                     let mut sub_paths = Vec::new();
                     let mut layout_builder = TypeLayout::new().builder();
                     for (_index, field) in fields.iter().enumerate() {
@@ -601,7 +601,7 @@ impl ScanPath {
                         Some(Self::Tuple { sub_paths })
                     }
                 }
-                jvm_core::Tuple::Compose(fields) => {
+                vm_core::Tuple::Compose(fields) => {
                     let mut sub_paths = Vec::new();
                     for (_index, (field, layout)) in fields.iter().enumerate() {
                         if let Some(sub_path) = Self::scan(plan, field)? {
@@ -615,7 +615,7 @@ impl ScanPath {
                     }
                 }
             },
-            jvm_core::Type::Enum(e) => {
+            vm_core::Type::Enum(e) => {
                 let mut sub_paths = Vec::new();
                 for (index, variant) in e.variants.iter().enumerate() {
                     if let Some(sub_path) = Self::scan(plan, variant)? {
@@ -628,19 +628,19 @@ impl ScanPath {
                     Some(Self::Enum { sub_paths, tag: e.tag_layout })
                 }
             }
-            jvm_core::Type::Pointer(p) => Self::scan(plan, p)?.map(|sub_path| Self::Pointer { sub_path: Box::new(sub_path) }),
-            jvm_core::Type::Array(inner, size) => {
+            vm_core::Type::Pointer(p) => Self::scan(plan, p)?.map(|sub_path| Self::Pointer { sub_path: Box::new(sub_path) }),
+            vm_core::Type::Array(inner, size) => {
                 let layout = inner.get_layout()?;
                 Some(Self::Array { size: *size, element_size: usize::max(layout.size(), layout.align()) })
             }
-            jvm_core::Type::Reference(obj) => obj.try_map(|obj| {
+            vm_core::Type::Reference(obj) => obj.try_map(|obj| {
                 Ok(if plan.clean_types().contains(RegistedType::try_downcast(&**obj)?) {
                     Some(Self::Reference)
                 } else {
                     None
                 })
             })?,
-            jvm_core::Type::Embed(inner) => inner.try_map(|obj| {
+            vm_core::Type::Embed(inner) => inner.try_map(|obj| {
                 Ok(if plan.scan_types().contains(RegistedType::try_downcast(&**obj)?) {
                     Some(Self::Embed)
                 } else {

@@ -9,7 +9,7 @@ opt-level = 'z'
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-jvm-core={path="../../jvm-core"}
+vm-core={path="../../vm-core"}
 runtime={path="../../runtime"}
 util={path="../../util"}
 inkwell = { git = "https://github.com/TheDan64/inkwell", branch = "master",default-features = false, features = ["target-x86","llvm10-0"] }

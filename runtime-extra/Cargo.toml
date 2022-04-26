@@ -7,10 +7,9 @@ authors = ["王子陶 <2451355023@qq.com>"]
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-jvm-core={path = "../jvm-core"}
+vm-core={path="../vm-core"}
 util={path="../util" }
 util-derive={path = "../util-derive"}
-classfile={path="../classfile"}
 runtime={path="../runtime"}
 runtime-derive={path="../runtime-derive"}
 failure = "0.1.8"

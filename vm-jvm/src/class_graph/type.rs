@@ -1,9 +1,6 @@
-use crate::{class::{self, JavaClass}};
+use crate::class::{self, JavaClass};
 
 use classfile::attributes::Attribute;
-use jvm_core::{
-    Component, 
-};
 use std::{
     borrow::Borrow,
     cmp::Ordering,
@@ -14,6 +11,7 @@ use std::{
     sync::{Arc, RwLock},
 };
 use util::{AtomicLazyArc, PooledStr};
+use vm_core::Component;
 #[derive(Debug, Clone, Copy)]
 pub enum PrimitiveType {
     Byte,
@@ -44,17 +42,10 @@ pub struct TypeVariable {
 }
 impl TypeVariable {
     pub fn new(type_parameter: &TypeParameterSignature) -> Result<Self> {
-        Ok(Self {
-            name: type_parameter.name.string.clone(),
-            bounds: Default::default(),
-        })
+        Ok(Self { name: type_parameter.name.string.clone(), bounds: Default::default() })
     }
 
-    pub fn update_bounds<T: TypeTreeNode>(
-        &self,
-        type_parameter: TypeParameterSignature,
-        signature_context: &SignatureContext<'_, T>,
-    ) -> Result<()> {
+    pub fn update_bounds<T: TypeTreeNode>(&self, type_parameter: TypeParameterSignature, signature_context: &SignatureContext<'_, T>) -> Result<()> {
         let mut bounds = if let Some(class_bound) = type_parameter.bounds.bound {
             let mut bounds = Vec::with_capacity(1 + type_parameter.super_interface.bound.len());
             bounds.push(class_bound.to_type(signature_context)?);
@@ -110,8 +101,7 @@ impl PartialEq for TypeVariableReference {
 }
 impl Eq for TypeVariableReference {}
 pub type TypeVariableSet = HashSet<TypeVariableReference>;
-#[derive(Clone)]
-#[derive(Clone)]
+#[derive(Clone, Clone)]
 pub enum Type {
     JavaClass(Arc<JavaClass>),
     Array(Box<Type>),
@@ -122,11 +112,7 @@ pub enum Type {
     Void,
 }
 impl Type {
-    pub fn child_with_type_arguments(
-        self,
-        _raw: Arc<JavaClass>,
-        _args: Vec<Type>,
-    ) -> Result<Type> {
+    pub fn child_with_type_arguments(self, _raw: Arc<JavaClass>, _args: Vec<Type>) -> Result<Type> {
         todo!(); // TODO
     }
 
@@ -134,10 +120,7 @@ impl Type {
         Ok(Type::Array(Box::new(self)))
     }
 
-    pub fn get_class(
-        &self,
-        _class_loader: &dyn ClassLoaderTrait,
-    ) -> Result<Arc<JavaClass>> {
+    pub fn get_class(&self, _class_loader: &dyn ClassLoaderTrait) -> Result<Arc<JavaClass>> {
         todo!()
     }
 
@@ -173,62 +156,25 @@ pub struct GenericType {
 }
 impl GenericType {
     pub fn new(java_type: Type, raw_class: Arc<JavaClass>) -> Self {
-        Self {
-            java_type,
-            raw_class,
-        }
+        Self { java_type, raw_class }
     }
 
-    pub fn from_non_primitive_class(
-        class_loader: &Arc<ClassLoader>,
-        class: Arc<JavaClass>,
-    ) -> Result<Self> {
-        Ok(Self {
-            java_type: Type::JavaClass(class.clone()),
-            raw_class: class,
-        })
+    pub fn from_non_primitive_class(class_loader: &Arc<ClassLoader>, class: Arc<JavaClass>) -> Result<Self> {
+        Ok(Self { java_type: Type::JavaClass(class.clone()), raw_class: class })
     }
 
     pub fn from_symbol(class_loader: &Arc<ClassLoader>, symbol: &PooledStr) -> Result<Self> {
         Ok(match &**symbol {
-            "I" => Self::new(
-                Type::Primitive(PrimitiveType::Int),
-                class_loader.get_bootstrap_class_set().int.clone(),
-            ),
-            "J" => Self::new(
-                Type::Primitive(PrimitiveType::Long),
-                class_loader.get_bootstrap_class_set().long.clone(),
-            ),
-            "S" => Self::new(
-                Type::Primitive(PrimitiveType::Short),
-                class_loader.get_bootstrap_class_set().short.clone(),
-            ),
-            "C" => Self::new(
-                Type::Primitive(PrimitiveType::Char),
-                class_loader.get_bootstrap_class_set().char.clone(),
-            ),
-            "B" => Self::new(
-                Type::Primitive(PrimitiveType::Byte),
-                class_loader.get_bootstrap_class_set().byte.clone(),
-            ),
-            "Z" => Self::new(
-                Type::Primitive(PrimitiveType::Boolean),
-                class_loader.get_bootstrap_class_set().boolean.clone(),
-            ),
-            "D" => Self::new(
-                Type::Primitive(PrimitiveType::Double),
-                class_loader.get_bootstrap_class_set().double.clone(),
-            ),
-            "F" => Self::new(
-                Type::Primitive(PrimitiveType::Float),
-                class_loader.get_bootstrap_class_set().float.clone(),
-            ),
+            "I" => Self::new(Type::Primitive(PrimitiveType::Int), class_loader.get_bootstrap_class_set().int.clone()),
+            "J" => Self::new(Type::Primitive(PrimitiveType::Long), class_loader.get_bootstrap_class_set().long.clone()),
+            "S" => Self::new(Type::Primitive(PrimitiveType::Short), class_loader.get_bootstrap_class_set().short.clone()),
+            "C" => Self::new(Type::Primitive(PrimitiveType::Char), class_loader.get_bootstrap_class_set().char.clone()),
+            "B" => Self::new(Type::Primitive(PrimitiveType::Byte), class_loader.get_bootstrap_class_set().byte.clone()),
+            "Z" => Self::new(Type::Primitive(PrimitiveType::Boolean), class_loader.get_bootstrap_class_set().boolean.clone()),
+            "D" => Self::new(Type::Primitive(PrimitiveType::Double), class_loader.get_bootstrap_class_set().double.clone()),
+            "F" => Self::new(Type::Primitive(PrimitiveType::Float), class_loader.get_bootstrap_class_set().float.clone()),
             _ => {
-                let name = if (&**symbol).bytes().next() == Some(b'[') {
-                    &**symbol
-                } else {
-                    &symbol[0..symbol.len() - 1]
-                };
+                let name = if (&**symbol).bytes().next() == Some(b'[') { &**symbol } else { &symbol[0..symbol.len() - 1] };
                 let class = class_loader.get_class(name)?;
                 Self::new(Type::JavaClass(class.clone()), class)
             }
@@ -243,10 +189,7 @@ impl GenericType {
     ) -> Result<Self> {
         let context = SignatureContext::new(&**class_loader, type_tree_node);
         let java_type = signature.to_type(&context)?;
-        Ok(GenericType {
-            java_type,
-            raw_class: class,
-        })
+        Ok(GenericType { java_type, raw_class: class })
     }
 
     pub fn from_field_signature(
@@ -260,10 +203,7 @@ impl GenericType {
             let signature = FieldSignature::from_attribute(signature_attribute)?;
             let context = SignatureContext::new(&**class_loader, type_tree_node);
             let java_type = signature.to_type(&context)?;
-            Ok(GenericType {
-                java_type,
-                raw_class: class.clone(),
-            })
+            Ok(GenericType { java_type, raw_class: class.clone() })
         } else {
             Ok(GenericType::from_symbol(class_loader, descriptor)?)
         }
@@ -291,11 +231,11 @@ impl GenericType {
 }
 impl Component for GenericType {}
 impl GeneraicTypeTrait for GenericType {
-    fn raw_class(&self) -> &dyn jvm_core::JavaClassTrait {
+    fn raw_class(&self) -> &dyn vm_core::JavaClassTrait {
         &*self.raw_class
     }
 
-    fn raw_class_owned(&self) -> Arc<dyn jvm_core::JavaClassTrait> {
+    fn raw_class_owned(&self) -> Arc<dyn vm_core::JavaClassTrait> {
         self.raw_class.clone()
     }
 
@@ -340,29 +280,16 @@ impl<'a> TypeTreeNode for TemporaryTypeTreeNode<'a> {
     }
 }
 impl<'a> TemporaryTypeTreeNode<'a> {
-    pub fn new(
-        type_parameter_signature: Vec<TypeParameterSignature>,
-        parents: Option<&'a dyn TypeTreeNode>,
-        class_loader: &Arc<ClassLoader>,
-    ) -> Result<Self> {
+    pub fn new(type_parameter_signature: Vec<TypeParameterSignature>, parents: Option<&'a dyn TypeTreeNode>, class_loader: &Arc<ClassLoader>) -> Result<Self> {
         let _len = type_parameter_signature.len();
         let mut type_variables = HashSet::with_capacity(type_parameter_signature.len());
         for type_parameter in &type_parameter_signature {
             type_variables.insert(TypeVariable::new(&type_parameter)?.into());
         }
-        let this = Self {
-            type_variables,
-            parents,
-        };
+        let this = Self { type_variables, parents };
         for type_parameter in type_parameter_signature {
-            let type_variable_reference = this
-                .type_variables
-                .get(type_parameter.name.to_str())
-                .unwrap();
-            type_variable_reference.update_bounds(
-                type_parameter,
-                &SignatureContext::new(&**class_loader, &this),
-            )?;
+            let type_variable_reference = this.type_variables.get(type_parameter.name.to_str()).unwrap();
+            type_variable_reference.update_bounds(type_parameter, &SignatureContext::new(&**class_loader, &this))?;
         }
         Ok(this)
     }

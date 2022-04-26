@@ -1,9 +1,9 @@
 use std::collections::HashMap;
 
 use classfile::attributes::Attribute;
-use jvm_core::Component;
 use modifier::*;
 use util::PooledStr;
+use vm_core::Component;
 pub trait Modifier {
     fn is_abstract(&self) -> bool;
     fn is_public(&self) -> bool;

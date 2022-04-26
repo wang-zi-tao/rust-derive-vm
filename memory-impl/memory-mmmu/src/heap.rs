@@ -1,6 +1,5 @@
 use failure::Fallible;
-use jvm_core::TypeLayout;
-
+use vm_core::TypeLayout;
 
 use crate::{metadata::Metadata, RegistedType};
 

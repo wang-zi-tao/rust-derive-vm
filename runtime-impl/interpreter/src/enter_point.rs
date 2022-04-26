@@ -7,9 +7,9 @@ use inkwell::{
     module::Module,
     values::{CallableValue, PointerValue},
 };
-use jvm_core::{FunctionType, IntKind, ObjectBuilder, ObjectRef, SymbolBuilder, Tuple, _ghost_cell::GhostToken};
 use libffi::middle::{Callback, Cif, Closure, Type};
 use util::CowArc;
+use vm_core::{FunctionType, IntKind, ObjectBuilder, ObjectRef, SymbolBuilder, Tuple, _ghost_cell::GhostToken};
 
 #[repr(C)]
 pub struct FunctionMetadata {
@@ -124,20 +124,20 @@ pub struct FunctionBinder {
     #[getset(get_copy = "pub")]
     enter_point_mul_arg_va_arg: Callback<FunctionMetadata, i64>,
 }
-fn convert_type(vm_type: &jvm_core::Type) -> Type {
+fn convert_type(vm_type: &vm_core::Type) -> Type {
     match vm_type {
-        jvm_core::Type::Float(jvm_core::FloatKind::F32) => Type::f32(),
-        jvm_core::Type::Float(jvm_core::FloatKind::F64) => Type::f64(),
-        jvm_core::Type::Int(int_kind) => match int_kind {
-            jvm_core::IntKind::Bool => Type::c_int(),
-            jvm_core::IntKind::I8 => Type::i8(),
-            jvm_core::IntKind::I16 => Type::i16(),
-            jvm_core::IntKind::I32 => Type::i32(),
-            jvm_core::IntKind::I64 => Type::i64(),
-            jvm_core::IntKind::U8 => Type::u8(),
-            jvm_core::IntKind::U16 => Type::u16(),
-            jvm_core::IntKind::U32 => Type::u32(),
-            jvm_core::IntKind::U64 => Type::u64(),
+        vm_core::Type::Float(vm_core::FloatKind::F32) => Type::f32(),
+        vm_core::Type::Float(vm_core::FloatKind::F64) => Type::f64(),
+        vm_core::Type::Int(int_kind) => match int_kind {
+            vm_core::IntKind::Bool => Type::c_int(),
+            vm_core::IntKind::I8 => Type::i8(),
+            vm_core::IntKind::I16 => Type::i16(),
+            vm_core::IntKind::I32 => Type::i32(),
+            vm_core::IntKind::I64 => Type::i64(),
+            vm_core::IntKind::U8 => Type::u8(),
+            vm_core::IntKind::U16 => Type::u16(),
+            vm_core::IntKind::U32 => Type::u32(),
+            vm_core::IntKind::U64 => Type::u64(),
             _ => Type::pointer(),
         },
         _ => Type::pointer(),
@@ -147,14 +147,14 @@ unsafe extern "C" fn panic() {
     panic!();
 }
 impl FunctionBinder {
-    pub(crate) fn bind<'ctx>(&self, code: ObjectRef, function_type: &FunctionType, register_count: u16) -> Fallible<FunctionBind> {
+    pub(crate) fn bind<'ctx>(&self, code: ObjectRef, function_type: &FunctionType, register_count: u16, output: ObjectRef) -> Fallible<FunctionBind> {
         let mut args_type = Vec::with_capacity(function_type.args.len());
         for arg_type in &function_type.args {
             args_type.push(convert_type(arg_type));
         }
         if let Some(va_arg_type) = function_type.va_arg() {
-            args_type.push(convert_type(&jvm_core::Type::Tuple(Tuple::Normal(CowArc::Owned(
-                vec![jvm_core::Type::Pointer(CowArc::new(va_arg_type.clone())), jvm_core::Type::Int(IntKind::Usize)].into(),
+            args_type.push(convert_type(&vm_core::Type::Tuple(Tuple::Normal(CowArc::Owned(
+                vec![vm_core::Type::Pointer(CowArc::new(va_arg_type.clone())), vm_core::Type::Int(IntKind::Usize)].into(),
             )))))
         }
         let ret_type = if let Some(ret) = &function_type.return_type { convert_type(ret) } else { Type::void() };
@@ -177,10 +177,8 @@ impl FunctionBinder {
                 &metadata.bind as *const _ as usize - metadata as *const FunctionMetadata as usize
             };
             object_builder.borrow_mut(&mut token).set_pin(true);
-            object_builder.borrow_mut(&mut token).set_import(offset, code, jvm_core::RelocationKind::Usize, 0);
-            object_builder
-                .borrow_mut(&mut token)
-                .add_symbol(SymbolBuilder::default().offset(bind_offset).relocation_kind(jvm_core::RelocationKind::Usize).build()?);
+            object_builder.borrow_mut(&mut token).set_import(offset, code, vm_core::RelocationKind::Usize, 0);
+            object_builder.borrow_mut(&mut token).add_symbol(SymbolBuilder::default().offset(bind_offset).symbol_kind(vm_core::SymbolKind::Value).build()?);
             Fallible::Ok((object_builder.take(&mut token).build(), metadata_ptr_mut))
         })?;
         let closure = unsafe { Closure::new(cif, callback, metadata.as_ref().unwrap()) };

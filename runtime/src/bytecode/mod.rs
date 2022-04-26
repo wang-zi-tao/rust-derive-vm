@@ -1,10 +1,8 @@
 use classfile::{attributes::Code, constants::Constant, Method};
 use code::byte_code::OpCode;
 use frame::FrameState;
-use jvm_core::{ClassLoaderRef, ExecutableRef, JavaClassRef};
-use memory::associate::{
-    AssociateStubPoolBuilder, AssociateStubPoolBuilderTrait, ExtendAssociateStubPoolBuilder,
-};
+use memory::associate::{AssociateStubPoolBuilder, AssociateStubPoolBuilderTrait, ExtendAssociateStubPoolBuilder};
+use vm_core::{ClassLoaderRef, ExecutableRef, JavaClassRef};
 
 pub mod code;
 pub mod constant_pool;

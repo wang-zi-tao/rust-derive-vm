@@ -3,12 +3,12 @@ use std::{
     rc::Rc,
 };
 
+use derive_builder::Builder;
 use failure::Fallible;
 use ghost_cell::{GhostCell, GhostToken};
-use jvm_core::{self, FunctionType, ObjectBuilder, ObjectBuilderImport, ObjectBuilderInner, ObjectRef, SymbolBuilder, TypeDeclaration};
-use log::{debug, trace};
 use smallvec::SmallVec;
 use util::CowSlice;
+use vm_core::{self, FunctionType, ObjectBuilder, ObjectBuilderImport, ObjectBuilderInner, ObjectRef, SymbolBuilder, TypeDeclaration};
 
 use crate::instructions::InstructionSet;
 
@@ -19,8 +19,9 @@ pub enum SegmentKind {
     Constants,
     Reference,
 }
-#[derive(Getters, CopyGetters)]
+#[derive(Builder, Getters, CopyGetters)]
 pub struct FunctionPack<S> {
+    #[builder(default)]
     pub _ph: PhantomData<S>,
     #[getset(get = "pub")]
     pub byte_code: ObjectRef,
@@ -28,6 +29,8 @@ pub struct FunctionPack<S> {
     pub function_type: FunctionType,
     #[getset(get_copy = "pub")]
     pub register_count: u16,
+    #[builder(default)]
+    pub output: ObjectRef,
 }
 
 impl<S> Debug for FunctionPack<S> {
@@ -92,6 +95,10 @@ impl<'l, S> FunctionBuilder<'l, S> {
     }
 
     pub fn pack(self, token: &mut GhostToken<'l>, function_type: FunctionType, register_count: u16) -> Fallible<FunctionPack<S>> {
+        self.pack_into(token, function_type, register_count, Default::default())
+    }
+
+    pub fn pack_into(self, token: &mut GhostToken<'l>, function_type: FunctionType, register_count: u16, output: ObjectRef) -> Fallible<FunctionPack<S>> {
         let blocks = self.blocks;
         let remote_constants = self.remote_constants;
         let mut buffer = ObjectBuilder::default();
@@ -99,9 +106,9 @@ impl<'l, S> FunctionBuilder<'l, S> {
             buffer = ObjectBuilder::merge(token, buffer, block.codes);
         }
         buffer = ObjectBuilder::merge(token, buffer, remote_constants);
-        buffer.borrow_mut(token).add_symbol(SymbolBuilder::default().offset(0).relocation_kind(jvm_core::RelocationKind::Usize).build()?);
+        buffer.borrow_mut(token).add_symbol(SymbolBuilder::default().offset(0).build()?);
         let object = buffer.take(token).build()?;
-        Ok(FunctionPack { _ph: PhantomData, byte_code: object, function_type, register_count })
+        Ok(FunctionPack { _ph: PhantomData, byte_code: object, function_type, register_count, output })
     }
 }
 #[derive(Getters)]
@@ -133,9 +140,8 @@ impl<'l, S> Clone for BlockBuilder<'l, S> {
 impl<'l, S> Default for BlockBuilder<'l, S> {
     fn default() -> Self {
         let mut object_builder = ObjectBuilderInner::default();
-        object_builder.add_symbol(SymbolBuilder::default().offset(0).relocation_kind(jvm_core::RelocationKind::I32Relative).build().unwrap());
+        object_builder.add_symbol(SymbolBuilder::default().offset(0).build().unwrap());
         let codes = object_builder.into();
-        trace!("{:?}", &codes);
         Self { codes, phantom_data: PhantomData }
     }
 }
@@ -170,7 +176,7 @@ impl<'l, S: InstructionSet> BlockBuilder<'l, S> {
         } else {
             ObjectBuilderImport::Builder(block.codes().clone())
         };
-        ObjectBuilderInner::push_import(self.codes(), token, import, jvm_core::RelocationKind::I32Relative, 0);
+        ObjectBuilderInner::push_import(self.codes(), token, import, vm_core::RelocationKind::I32Relative, 0);
     }
 }
 #[derive(Debug)]

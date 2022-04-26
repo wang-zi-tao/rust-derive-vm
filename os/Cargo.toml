@@ -19,4 +19,4 @@ memfd = "0.4.0"
 self-meter = "0.6.0"
 madvise = "0.1.0"
 smallvec = "1.6.1"
-jvm-core={path="../jvm-core"}
+vm-core={path="../vm-core"}

@@ -1,8 +1,8 @@
 use std::marker::PhantomData;
 
 use crate::ty::*;
-use jvm_core::{Pointer, Slice, TypeDeclaration, UnsizedArray};
 use runtime::instructions::{bootstrap as b, bootstrap::*};
+use vm_core::{Pointer, Slice, TypeDeclaration, UnsizedArray};
 macro_rules! declare_instruction {
     (Const,$ty:ty,$name:ident) => {
         make_instruction!($name->fn<const value:$ty>()->(o:$ty){

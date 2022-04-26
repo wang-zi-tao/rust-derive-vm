@@ -4,11 +4,9 @@
 #![feature(inherent_associated_types)]
 use runtime::instructions::bootstrap as b;
 use runtime_extra as e;
-use std::{
-    ptr::NonNull,
-};
+use std::ptr::NonNull;
 
-use jvm_core::*;
+use vm_core::*;
 #[macro_use]
 extern crate runtime_derive;
 #[derive(TypeDeclaration)]

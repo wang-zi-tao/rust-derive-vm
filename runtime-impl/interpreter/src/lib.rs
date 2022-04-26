@@ -14,13 +14,13 @@ use failure::{format_err, Fallible};
 use genarator::GlobalBuilder;
 use getset::Getters;
 use inkwell::context::Context;
-use jvm_core::{Component, ExecutableResourceTrait, FunctionType, ObjectRef, Resource, ResourceError, ResourceFactory, RuntimeTrait};
 use runtime::{
     code::FunctionPack,
     instructions::{InstructionSet, InstructionType, MemoryInstructionSet},
     mem::MemoryInstructionSetProvider,
 };
 use util::AsAny;
+use vm_core::{Component, ExecutableResourceTrait, FunctionType, ObjectRef, Resource, ResourceError, ResourceFactory, RuntimeTrait};
 // #[macro_use]
 // extern crate util_derive;
 
@@ -98,19 +98,20 @@ impl<S: InstructionSet + 'static, M: MemoryInstructionSetProvider + 'static> AsA
     }
 }
 impl<S: InstructionSet, M: MemoryInstructionSetProvider> Interpreter<S, M> {}
-impl<S: InstructionSet, M: MemoryInstructionSetProvider> jvm_core::Module for Interpreter<S, M> {}
+impl<S: InstructionSet, M: MemoryInstructionSetProvider> vm_core::Module for Interpreter<S, M> {}
 impl<S: InstructionSet, M: MemoryInstructionSetProvider> ResourceFactory<FunctionPack<S>> for Interpreter<S, M> {
     type ResourceImpl = FunctionResource;
 
     fn define(&self) -> Fallible<Arc<Self::ResourceImpl>> {
         let ir = ObjectRef::new();
-        let bind = self.raw.binder.bind(ir.clone(), &FunctionType::default(), 0)?;
+        let output = ObjectRef::new();
+        let bind = self.raw.binder.bind(ir.clone(), &FunctionType::default(), 0, output)?;
         Ok(Arc::new(FunctionResource { ir, bind: Mutex::new(bind) }))
     }
 
     fn create(&self, input: FunctionPack<S>) -> Fallible<Arc<Self::ResourceImpl>> {
         let ir = input.byte_code.clone();
-        let bind = self.raw.binder.bind(ir.clone(), &input.function_type, input.register_count)?;
+        let bind = self.raw.binder.bind(ir.clone(), &input.function_type, input.register_count, input.output)?;
         Ok(Arc::new(FunctionResource { ir, bind: Mutex::new(bind) }))
     }
 
@@ -156,7 +157,7 @@ impl Debug for FunctionResource {
 
 impl Component for FunctionResource {}
 impl<M> Resource<FunctionPack<M>> for FunctionResource {
-    fn get_state(&self) -> jvm_core::ResourceState {
+    fn get_state(&self) -> vm_core::ResourceState {
         todo!()
     }
 }

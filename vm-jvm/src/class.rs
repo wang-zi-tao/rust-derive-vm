@@ -1,14 +1,12 @@
 use util::{AtomicCell, AtomicLazyArc};
 
-use crate::{
-    field::{FieldLayout, FieldLayoutKind},
-};
-use jvm_core::{Component, TypeLayoutTrait};
+use crate::field::{FieldLayout, FieldLayoutKind};
 use std::{
     fmt::Debug,
     hash::Hash,
     sync::{Arc, RwLock},
 };
+use vm_core::{Component, TypeLayoutTrait};
 // #[derive(Debug, AsAny, Getters)]
 // pub struct TypeLayout {
 // size: u32,

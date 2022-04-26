@@ -10,7 +10,7 @@ lexical={path="../lexical"}
 lexical-derive={path="../lexical-derive"}
 syntax={path="../syntax"}
 syntax-derive={path="../syntax-derive"}
-jvm-core={path="../jvm-core"}
+vm-core={path="../vm-core"}
 runtime={path="../runtime"}
 runtime-extra={path="../runtime-extra"}
 runtime-derive={path="../runtime-derive"}

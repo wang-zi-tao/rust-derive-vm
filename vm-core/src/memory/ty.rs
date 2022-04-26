@@ -676,7 +676,7 @@ impl PartialEq for dyn TypeResource {
     }
 }
 impl Eq for dyn TypeResource {}
-#[derive(Default, Debug, Builder, Getters, CopyGetters, PartialEq, Eq)]
+#[derive(Default, Clone, Debug, Builder, Getters, CopyGetters, PartialEq, Eq)]
 pub struct FunctionType {
     #[getset(get = "pub")]
     #[builder(default)]
@@ -746,30 +746,30 @@ macro_rules! make_reference {
     ($name:ident,$ty:ty,$resource_type:ty) => {
         #[repr(C)]
         #[derive(Clone)]
-        pub struct $name(pub std::ptr::NonNull<<$ty as jvm_core::TypeDeclaration>::Impl>);
+        pub struct $name(pub std::ptr::NonNull<<$ty as vm_core::TypeDeclaration>::Impl>);
         impl TypeDeclaration for $name {
-            type Impl = jvm_core::Pointer<$ty>;
+            type Impl = vm_core::Pointer<$ty>;
 
-            const LAYOUT: jvm_core::TypeLayout = jvm_core::TypeLayout::of::<std::ptr::NonNull<u8>>();
-            const TYPE: jvm_core::Type = jvm_core::Type::Reference(jvm_core::MaybeDefinedResource::Factory(Self::get));
+            const LAYOUT: vm_core::TypeLayout = vm_core::TypeLayout::of::<std::ptr::NonNull<u8>>();
+            const TYPE: vm_core::Type = vm_core::Type::Reference(vm_core::MaybeDefinedResource::Factory(Self::get));
         }
         impl $name {
-            pub fn get() -> failure::Fallible<util::CowArc<'static, dyn jvm_core::TypeResource>> {
+            pub fn get() -> failure::Fallible<util::CowArc<'static, dyn vm_core::TypeResource>> {
                 lazy_static! {
                     static ref RESOURCE: std::sync::Arc<$resource_type> = {
                         let resource = <$resource_type as util::DefaultArc>::default_arc();
-                        resource.upload(<$ty as jvm_core::TypeDeclaration>::TYPE).unwrap();
+                        resource.upload(<$ty as vm_core::TypeDeclaration>::TYPE).unwrap();
                         resource
                     };
                 }
                 Ok(util::CowArc::Owned((&*RESOURCE).clone()))
             }
 
-            pub fn as_non_null(&self) -> std::ptr::NonNull<<$ty as jvm_core::TypeDeclaration>::Impl> {
+            pub fn as_non_null(&self) -> std::ptr::NonNull<<$ty as vm_core::TypeDeclaration>::Impl> {
                 self.0
             }
 
-            pub fn as_pointer(&self) -> jvm_core::Pointer<$ty> {
+            pub fn as_pointer(&self) -> vm_core::Pointer<$ty> {
                 Pointer::new(self.0.cast())
             }
         }

@@ -8,7 +8,7 @@
 // };
 //
 // use failure::{format_err, Fallible};
-// use jvm_core::{FloatKind, FunctionType, IntKind, ReferenceKind, Type, TypeResource};
+// use vm_core::{FloatKind, FunctionType, IntKind, ReferenceKind, Type, TypeResource};
 //
 // use crate::{graph::RegistedType, heap::HEAP_SEGMENT_SIZE, metadata::Metadata};
 //
@@ -287,7 +287,7 @@
 //
 //     fn arrange_reference_layout(
 //         value_type: Arc<dyn TypeResource>,
-//         reference_kind: Arc<dyn jvm_core::ReferenceKind>,
+//         reference_kind: Arc<dyn vm_core::ReferenceKind>,
 //     ) -> Fallible<Self> {
 //         Ok(TypeLayout {
 //             base_size: reference_kind.size(),
@@ -380,7 +380,7 @@
 //
 //     use super::TypeLayout;
 //     use failure::Fallible;
-//     use jvm_core::{FloatKind, IntKind, Type};
+//     use vm_core::{FloatKind, IntKind, Type};
 //     #[test]
 //     fn arrange() -> Fallible<()> {
 //         let layout = TypeLayout::arrange(Type::Tuple(

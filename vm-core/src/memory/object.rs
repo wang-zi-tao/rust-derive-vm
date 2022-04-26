@@ -9,13 +9,11 @@ use std::{
     sync::{Arc, Mutex},
 };
 
+use super::buffer::UnsafeBuffer;
 use failure::{format_err, Fallible};
 use getset::{CopyGetters, Getters, Setters};
-use hashbrown::HashSet;
-use log::debug;
-
-use super::buffer::UnsafeBuffer;
 use ghost_cell::{GhostCell, GhostToken};
+use hashbrown::HashSet;
 #[derive(Debug, Clone)]
 pub enum RelocationKind {
     I8Relative,
@@ -58,10 +56,23 @@ impl Relocation {
         }
     }
 }
+#[derive(Debug, Clone)]
+pub enum SymbolKind {
+    Ptr,
+    Value,
+}
+
+impl Default for SymbolKind {
+    fn default() -> Self {
+        Self::Ptr
+    }
+}
+
 #[derive(Debug, Clone, Builder)]
 pub struct Symbol<T: Clone + Hash + Eq> {
     offset: usize,
-    relocation_kind: RelocationKind,
+    #[builder(default)]
+    symbol_kind: SymbolKind,
     #[builder(default)]
     usage: HashSet<T>,
 }
@@ -126,6 +137,12 @@ pub struct Object {
     unsafe_symbol_refs: Vec<(NonNull<UnsafeSymbolRef>, usize)>,
     pin: bool,
 }
+
+impl Default for Object {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 impl Object {
     pub fn new() -> Self {
         Self { buffer: UnsafeBuffer::new(), relocations: Vec::new(), symbols: Vec::new(), pin: false, unsafe_symbol_refs: Vec::new() }
@@ -156,27 +173,23 @@ impl Object {
         let old_symbols = mem::replace(&mut self.symbols, symbols);
         let old_relocations = mem::replace(&mut self.relocations, relocations);
         for (_relocation_index, (relocation, ReflexiveSymbolRef(source, symbol_index))) in old_relocations.iter().enumerate() {
-            unsafe {
-                let value = if let Some(source) = &source {
-                    let source = source.lock().unwrap();
-                    source.get_export_ptr(*symbol_index)
-                } else {
-                    self.get_export_ptr(*symbol_index)
-                };
-                relocation.relocate(&mut self.buffer, value);
-            }
+            let value = if let Some(source) = &source {
+                let source = source.lock().unwrap();
+                source.get_export_ptr(*symbol_index)
+            } else {
+                self.get_export_ptr(*symbol_index)
+            };
+            relocation.relocate(&mut self.buffer, value);
         }
         for (symbol_index, symbol) in old_symbols.iter().enumerate() {
             for ReflexiveSymbolRef(usage, relocate_index) in &symbol.usage {
-                unsafe {
-                    let value = self.get_export_ptr(symbol_index);
-                    {
-                        if let Some(usage) = usage.as_ref() {
-                            let mut usage = usage.lock().unwrap();
-                            usage.update_import(*relocate_index, value);
-                        } else {
-                            self.update_import(*relocate_index, value);
-                        }
+                let value = self.get_export_ptr(symbol_index);
+                {
+                    if let Some(usage) = usage.as_ref() {
+                        let mut usage = usage.lock().unwrap();
+                        usage.update_import(*relocate_index, value);
+                    } else {
+                        self.update_import(*relocate_index, value);
                     }
                 }
             }
@@ -189,9 +202,13 @@ impl Object {
         relocation.relocate(&mut self.buffer, data);
     }
 
-    pub unsafe fn get_export_ptr(&self, index: usize) -> *mut u8 {
-        let offset = self.symbols[index].offset;
-        self.buffer.get_ptr(offset).as_ptr()
+    pub fn get_export_ptr(&self, index: usize) -> *mut u8 {
+        let symbol = &self.symbols[index];
+        let ptr = self.buffer.get_ptr(symbol.offset).as_ptr();
+        match symbol.symbol_kind {
+            SymbolKind::Ptr => ptr,
+            SymbolKind::Value => unsafe { ptr.cast::<*mut u8>().read() },
+        }
     }
 
     unsafe fn add_export_record(&mut self, index: usize, target: ReflexiveSymbolRef) {
@@ -226,7 +243,7 @@ impl Object {
 }
 unsafe impl Send for Object {}
 unsafe impl Sync for Object {}
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub struct ObjectRef(Arc<Mutex<Object>>);
 impl Debug for ObjectRef {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -302,7 +319,7 @@ impl<'b> ObjectBuilder<'b> {
         b1.push_slice(unsafe { b2_buffer.borrow() });
         b1.symbols.extend(symbols);
         b1.relocations.extend(relocations);
-        for (symbol_index, symbol) in b1.symbols.iter_mut().enumerate().take(symbol_offset) {
+        for (_symbol_index, symbol) in b1.symbols.iter_mut().enumerate().take(symbol_offset) {
             for (mut usage, mut relocation_index) in symbol
                 .usage
                 .drain_filter(|(usage_symbol, _relocation_index)| !matches!(usage_symbol,ObjectBuilderExport::Builder(b)if b==&builder2))
@@ -378,7 +395,7 @@ impl<'b> ObjectBuilder<'b> {
         let b1 = builder1.deref().deref();
         for (source, symbol_index, relocation_index) in relocation_imports_tasks {
             match source {
-                ObjectBuilderImport::Builder(source) => unsafe {
+                ObjectBuilderImport::Builder(source) => {
                     let source_inner = source.deref().deref().borrow(token);
                     let value = source_inner.get_export_ptr(symbol_index);
                     b1.borrow_mut(token).relocate(relocation_index, (ObjectBuilderImport::Reflexive, symbol_index), value);
@@ -389,29 +406,27 @@ impl<'b> ObjectBuilder<'b> {
                         let not_already_exist = usage.insert((ObjectBuilderExport::Builder(builder1.clone()), relocation_index));
                         assert!(not_already_exist, "{:?} insert {:?}", usage, (builder1, relocation_index));
                     }
-                },
-                ObjectBuilderImport::ObjectRef(source) => unsafe {
+                }
+                ObjectBuilderImport::ObjectRef(source) => {
                     let source = source.lock().unwrap();
                     let value = source.get_export_ptr(symbol_index);
                     b1.borrow_mut(token).relocate(relocation_index, (ObjectBuilderImport::Reflexive, symbol_index), value);
-                },
-                ObjectBuilderImport::Reflexive => unsafe {
+                }
+                ObjectBuilderImport::Reflexive => {
                     let value = b1.borrow(token).get_export_ptr(symbol_index);
                     b1.borrow_mut(token).relocate(relocation_index, (ObjectBuilderImport::Reflexive, symbol_index), value);
-                },
+                }
             }
         }
         for (target, symbol_index, relocation_index) in redirect_exports_tasks {
-            unsafe {
-                match target {
-                    ObjectBuilderExport::Builder(target) => {
-                        let value = b1.deref().deref().borrow(token).get_export_ptr(symbol_index);
-                        target.borrow_mut(token).relocate(relocation_index, (ObjectBuilderImport::Builder(builder1.clone()), symbol_index), value);
-                    }
-                    ObjectBuilderExport::Reflexive => {
-                        let value = b1.deref().deref().borrow(token).get_export_ptr(symbol_index);
-                        b1.borrow_mut(token).relocate(relocation_index, (ObjectBuilderImport::Reflexive, symbol_index), value);
-                    }
+            match target {
+                ObjectBuilderExport::Builder(target) => {
+                    let value = b1.deref().deref().borrow(token).get_export_ptr(symbol_index);
+                    target.borrow_mut(token).relocate(relocation_index, (ObjectBuilderImport::Builder(builder1.clone()), symbol_index), value);
+                }
+                ObjectBuilderExport::Reflexive => {
+                    let value = b1.deref().deref().borrow(token).get_export_ptr(symbol_index);
+                    b1.borrow_mut(token).relocate(relocation_index, (ObjectBuilderImport::Reflexive, symbol_index), value);
                 }
             }
         }
@@ -541,8 +556,7 @@ impl<'l> ObjectBuilderInner<'l> {
     }
 
     pub fn build(self) -> Fallible<ObjectRef> {
-        let symbols =
-            self.symbols.into_iter().map(|symbol| Symbol { offset: symbol.offset, relocation_kind: symbol.relocation_kind, usage: HashSet::new() }).collect();
+        let symbols = self.symbols.into_iter().map(|symbol| Symbol { offset: symbol.offset, symbol_kind: symbol.symbol_kind, usage: HashSet::new() }).collect();
         let pool = Arc::new(Mutex::new(Object { buffer: self.buffer, relocations: Vec::new(), symbols, pin: self.pin, unsafe_symbol_refs: Vec::new() }));
         for (relocation_index, (source, relocation, symbol_index)) in self.relocations.into_iter().enumerate() {
             match source {
@@ -556,6 +570,51 @@ impl<'l> ObjectBuilderInner<'l> {
             };
         }
         Ok(ObjectRef(pool))
+    }
+
+    pub fn build_into(self, output: ObjectRef) -> Fallible<ObjectRef> {
+        // let pool = Arc::new(Mutex::new(Object { buffer: self.buffer, relocations: Vec::new(), symbols, pin: self.pin, unsafe_symbol_refs: Vec::new() }));
+        let pool = output;
+        let old_symbols;
+        {
+            let mut pool_locked = pool.lock().unwrap();
+            let symbols = self
+                .symbols
+                .into_iter()
+                .enumerate()
+                .map(|(symbol_index, symbol)| Symbol {
+                    offset: symbol.offset,
+                    symbol_kind: symbol.symbol_kind,
+                    usage: pool_locked.symbols.get(symbol_index).map(|s| s.usage.clone()).unwrap_or_default(),
+                })
+                .collect();
+            old_symbols = std::mem::replace(&mut pool_locked.symbols, symbols);
+        }
+        for (relocation_index, (source, relocation, symbol_index)) in self.relocations.into_iter().enumerate() {
+            match source {
+                ObjectBuilderImport::ObjectRef(object) => unsafe {
+                    object.lock().unwrap().add_export(symbol_index, relocation, ReflexiveSymbolRef(Some(pool.clone()), relocation_index))?;
+                },
+                ObjectBuilderImport::Reflexive => unsafe {
+                    pool.lock().unwrap().add_export(symbol_index, relocation, ReflexiveSymbolRef(None, relocation_index))?;
+                },
+                o => return Err(format_err!("can not build object with import {:?}", o)),
+            };
+        }
+        for (symbol_index, symbol) in old_symbols.iter().enumerate() {
+            for ReflexiveSymbolRef(usage, relocate_index) in &symbol.usage {
+                let value = pool.lock().unwrap().get_export_ptr(symbol_index);
+                {
+                    if let Some(usage) = usage.as_ref() {
+                        let mut usage = usage.lock().unwrap();
+                        usage.update_import(*relocate_index, value);
+                    } else {
+                        pool.lock().unwrap().update_import(*relocate_index, value);
+                    }
+                }
+            }
+        }
+        Ok(pool)
     }
 
     pub fn len(&self) -> usize {
@@ -614,9 +673,13 @@ impl<'l> ObjectBuilderInner<'l> {
         unsafe { self.buffer.align(align) }
     }
 
-    pub unsafe fn get_export_ptr(&self, index: usize) -> *mut u8 {
-        let offset = self.symbols[index].offset;
-        self.buffer.get_ptr(offset).as_ptr()
+    pub fn get_export_ptr(&self, index: usize) -> *mut u8 {
+        let symbol = &self.symbols[index];
+        let ptr = self.buffer.get_ptr(symbol.offset).as_ptr();
+        match symbol.symbol_kind {
+            SymbolKind::Ptr => ptr,
+            SymbolKind::Value => unsafe { ptr.cast::<*mut u8>().read() },
+        }
     }
 
     pub fn receive<T>(&mut self) -> &mut MaybeUninit<T> {

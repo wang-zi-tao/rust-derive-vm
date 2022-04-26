@@ -1,8 +1,8 @@
 use super::mem::*;
-use jvm_core::{Direct, MoveIntoObject, ObjectBuilder, Pointer, Slice, TypeDeclaration, UnsizedArray};
 use runtime::instructions::{bootstrap::{self as b, CallState, GetLength, MakeSlice, Read, SetState, Write}, Instruction};
 use runtime_extra::{self as e, instructions::*, ty::*};
 use std::{cell::UnsafeCell, marker::PhantomData, mem::MaybeUninit};
+use vm_core::{Direct, MoveIntoObject, ObjectBuilder, Pointer, Slice, TypeDeclaration, UnsizedArray};
 
 make_instruction! { ConstValue->fn<const v:LuaValue>()->(o:LuaValue){ entry:{ %o=b::Move<LuaValue::TYPE>(%v); }} }
 make_instruction! { ConstNil->fn()->(o:LuaValue){ entry:{ %o= lua_value::EncodeNil(b::UninitedStruct<Unit::TYPE>()); }} }

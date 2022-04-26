@@ -37,7 +37,7 @@ fn do_make_native_function(function: ItemFn, attr: NativeFunctionAttr) -> Result
                 syn::Pat::Ident(arg_name) => {
                     let arg_type = &t.ty;
                     input_metadata.push(quote! {#arg_name:#arg_type});
-                    input_type.push(quote! {<#arg_type as jvm_core::TypeDeclaration>::TYPE});
+                    input_type.push(quote! {<#arg_type as vm_core::TypeDeclaration>::TYPE});
                     input.push(quote! {%#arg_name});
                 }
                 _ => return Err(Error::new(t.pat.span(), "except ident")),
@@ -51,7 +51,7 @@ fn do_make_native_function(function: ItemFn, attr: NativeFunctionAttr) -> Result
             output = None;
         }
         syn::ReturnType::Type(_, return_type) => {
-            output_type = quote! {Some(<#return_type as jvm_core::TypeDeclaration>::TYPE)};
+            output_type = quote! {Some(<#return_type as vm_core::TypeDeclaration>::TYPE)};
             output_metadata = Some(quote! {o:#return_type});
             output = Some(quote! {%o =});
         }
@@ -67,16 +67,16 @@ fn do_make_native_function(function: ItemFn, attr: NativeFunctionAttr) -> Result
         )]
         #vis enum #name{}
         impl #name{
-            pub const TYPE: jvm_core::Type = jvm_core::Type::Function(
+            pub const TYPE: vm_core::Type = vm_core::Type::Function(
                 runtime::_util::CowArc::Ref(
-                    runtime::_util::inline_const!([&'static jvm_core::FunctionType]
-                        &jvm_core::FunctionType{
+                    runtime::_util::inline_const!([&'static vm_core::FunctionType]
+                        &vm_core::FunctionType{
                             dispatch:runtime::_util::CowSlice::new(),
                             va_arg:None,
                             return_type: #output_type,
                             args:runtime::_util::CowSlice::Ref(
                                 runtime::_util::inline_const!(
-                                    [&'static[jvm_core::Type]]
+                                    [&'static[vm_core::Type]]
                                     &[#(#input_type),*]
                                 )
                             ),

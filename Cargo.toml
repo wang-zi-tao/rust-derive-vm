@@ -1,11 +1,9 @@
 [workspace]
 members = [
   "arch",
-  "classfile",
-  # "class-graph",
   "os",
   "util",
-  "jvm-core",
+  "vm-core",
   "memory-impl/memory-mmmu",
   "runtime",
   "runtime-derive",
@@ -22,7 +20,6 @@ members = [
   "syntax",
   "syntax-derive",
   "syntax-test",
-  # "jvm",
   "vm-lua",
   "vm-lua-shell",
   # "vm-jvm",

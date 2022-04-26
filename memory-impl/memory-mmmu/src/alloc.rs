@@ -1,9 +1,6 @@
-
-
 use dashmap::{mapref::entry::Entry, DashMap};
 use failure::{format_err, Error};
-use jvm_core::{TypeLayout, TypeResource};
-use os::mem::{VM};
+use os::mem::VM;
 use std::{
     cell::RefCell,
     collections::{BTreeMap, HashMap},
@@ -12,6 +9,7 @@ use std::{
     sync::{Arc, Mutex},
 };
 use util::{CacheAlignedVec, CowArc};
+use vm_core::{TypeLayout, TypeResource};
 
 use super::heap::{HeapFrameRef, HeapPage, HEAP_SEGMENT_SIZE, PAGES_PRE_SEGMENT};
 use crate::{

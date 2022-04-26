@@ -29,7 +29,7 @@
 //! const_assert!(ObjectMatedata::layout.size()<=8);
 //! impl TypeImplement for LuaObjectRefValue{
 //!   type RustType=LuaObjectRef;
-//!   const ty:jvm_core::Type;
+//!   const ty:vm_core::Type;
 //!   fn encode(rust_data:Self::RustType)->Self{
 //!     ...
 //!   }
@@ -57,7 +57,7 @@
 //! }
 //! impl TypeImplement for ObjectValue{
 //!   type Declaration=Object;
-//!   fn asType()->&'static jvm_core::Type{
+//!   fn asType()->&'static vm_core::Type{
 //!     ...
 //!   }
 //!   fn encode(rust_data:Self::Declaration)->Self{
@@ -68,7 +68,7 @@
 //!   }
 //! }
 //! impl ObjectValue{
-//!   pub const TYPE:jvm_core::Type=jvm_core::Type::Turple(...);
+//!   pub const TYPE:vm_core::Type=vm_core::Type::Turple(...);
 //!   fn get_metadata(&self)->ObjectMatedata{
 //!     ...
 //!   }
@@ -298,7 +298,7 @@ fn derive_enum(s: &DataEnum, structure: &Structure) -> Result<TokenStream2> {
     let mut associations_declaration = Vec::new();
     let mut associations_alias = Vec::new();
     let mut associations = Vec::new();
-    let mut content_layout = quote! {jvm_core::TypeLayout::new()};
+    let mut content_layout = quote! {vm_core::TypeLayout::new()};
     let tag_count = s.variants.len();
     let tag_size: usize = match tag_count {
         0..=255 => 1,
@@ -321,20 +321,20 @@ fn derive_enum(s: &DataEnum, structure: &Structure) -> Result<TokenStream2> {
         match fields {
             Fields::Unit => {
                 variant_type = quote! {()};
-                variant_declaration = quote! {jvm_core::Type::Tuple(jvm_core::Tuple::Normal(runtime::_util::CowArc::Ref(&[])))};
+                variant_declaration = quote! {vm_core::Type::Tuple(vm_core::Tuple::Normal(runtime::_util::CowArc::Ref(&[])))};
             }
             Fields::Named(_) | Fields::Unnamed(_) => match fields.len() {
                 0 => {
                     variant_type = quote! {()};
-                    variant_declaration = quote! {jvm_core::Type::Tuple(jvm_core::Tuple::Normal(runtime::_util::CowArc::Ref(&[])))};
+                    variant_declaration = quote! {vm_core::Type::Tuple(vm_core::Tuple::Normal(runtime::_util::CowArc::Ref(&[])))};
                 }
                 1 => {
                     let field = fields.iter().next().unwrap();
                     let ty = &field.ty;
                     variant_type = quote! {#ty};
-                    variant_declaration = quote! {<#ty as jvm_core::TypeDeclaration>::TYPE};
+                    variant_declaration = quote! {<#ty as vm_core::TypeDeclaration>::TYPE};
                     content_layout = quote! {
-                      #content_layout.union(<#variant_type as jvm_core::TypeDeclaration>::LAYOUT)
+                      #content_layout.union(<#variant_type as vm_core::TypeDeclaration>::LAYOUT)
                     }
                 }
                 _ => {
@@ -349,7 +349,7 @@ fn derive_enum(s: &DataEnum, structure: &Structure) -> Result<TokenStream2> {
                     )?);
                     variant_structs.push(quote! {#[repr(C)] #vis struct #variant_struct_name #fields;});
                     content_layout = quote! {
-                      #content_layout.union(<#variant_type as jvm_core::TypeDeclaration>::LAYOUT)
+                      #content_layout.union(<#variant_type as vm_core::TypeDeclaration>::LAYOUT)
                     }
                 }
             },
@@ -364,29 +364,29 @@ fn derive_enum(s: &DataEnum, structure: &Structure) -> Result<TokenStream2> {
         variant_functions.push(quote! {
           pub const #tag_ident:usize=#variant_index;
           #[inline(always)]
-          pub fn #encode_fn_ident(value:<#variant_type as jvm_core::TypeDeclaration>::Impl)->Self{
+          pub fn #encode_fn_ident(value:<#variant_type as vm_core::TypeDeclaration>::Impl)->Self{
             use std::mem::MaybeUninit;
             unsafe{
               let mut this = MaybeUninit::<Self>::zeroed();
-              this.as_mut_ptr().cast::<<#variant_type as jvm_core::TypeDeclaration>::Impl>().write(value);
+              this.as_mut_ptr().cast::<<#variant_type as vm_core::TypeDeclaration>::Impl>().write(value);
               #tag_layout_fn_name #ty_generics_trubofish().encode(#variant_index,this.as_mut_ptr().cast());
               MaybeUninit::assume_init(this)
             }
           }
           #[inline(always)]
-          pub fn #write_fn_ident(&mut self,value:<#variant_type as jvm_core::TypeDeclaration>::Impl){
+          pub fn #write_fn_ident(&mut self,value:<#variant_type as vm_core::TypeDeclaration>::Impl){
             unsafe{
-              (self as *mut Self).cast::<<#variant_type as jvm_core::TypeDeclaration>::Impl>().write(value);
+              (self as *mut Self).cast::<<#variant_type as vm_core::TypeDeclaration>::Impl>().write(value);
               #tag_layout_fn_name #ty_generics_trubofish().encode(#variant_index,(self as *mut Self).cast());
             }
           }
           #[inline(always)]
-          pub fn #read_fn_ident(&mut self)->std::option::Option<<#variant_type as jvm_core::TypeDeclaration>::Impl>{
+          pub fn #read_fn_ident(&mut self)->std::option::Option<<#variant_type as vm_core::TypeDeclaration>::Impl>{
               unsafe {
                   if #tag_layout_fn_name #ty_generics_trubofish().decode((self as *mut Self).cast()) == #variant_index{
                       None
                   }else{
-                      let mut value:<#variant_type as jvm_core::TypeDeclaration>::Impl = (self as *mut Self).cast::<<#variant_type as jvm_core::TypeDeclaration>::Impl>().read();
+                      let mut value:<#variant_type as vm_core::TypeDeclaration>::Impl = (self as *mut Self).cast::<<#variant_type as vm_core::TypeDeclaration>::Impl>().read();
                       #tag_layout_fn_name #ty_generics_trubofish().earse(&mut value as *mut _ as *mut u8);
                       Some(value)
                   }
@@ -467,29 +467,29 @@ fn derive_enum(s: &DataEnum, structure: &Structure) -> Result<TokenStream2> {
     };
     if let Some(tag_start) = enum_attr.tag_start {
         let tag_start = tag_start;
-        tag_layout = quote! {jvm_core::EnumTagLayout::UndefinedValue{
+        tag_layout = quote! {vm_core::EnumTagLayout::UndefinedValue{
             end: #tag_start + #tag_count - 1,
             start: #tag_start,
         }};
     } else if let Some(tag_mask) = enum_attr.tag_mask {
         let mask = tag_mask.to_usize();
         let tag_offset_i8 = tag_offset as i8;
-        tag_layout = quote! {jvm_core::EnumTagLayout::SmallField(
-        jvm_core::SmallElementLayout{mask:#mask,bit_offset:#tag_offset_i8}
+        tag_layout = quote! {vm_core::EnumTagLayout::SmallField(
+        vm_core::SmallElementLayout{mask:#mask,bit_offset:#tag_offset_i8}
         )};
     } else if let Some(tag_offset) = enum_attr.tag_offset {
         let tag_size_u8 = tag_size as u8;
-        tag_layout = quote! {jvm_core::EnumTagLayout::UnusedBytes{
+        tag_layout = quote! {vm_core::EnumTagLayout::UnusedBytes{
             offset: #tag_offset,
             size: #tag_size_u8,
         }};
     } else {
         enum_layout = quote! {
-            #enum_layout.builder().extend(jvm_core::TypeLayout::default().set_size(#tag_size).set_align(#tag_size)).build()
+            #enum_layout.builder().extend(vm_core::TypeLayout::default().set_size(#tag_size).set_align(#tag_size)).build()
         };
         let tag_size_u8 = tag_size as u8;
         tag_layout = quote! {
-            jvm_core::EnumTagLayout::AppendTag{
+            vm_core::EnumTagLayout::AppendTag{
                 offset: #enum_layout.size() - #tag_size,
                 size: #tag_size_u8,
             }
@@ -497,13 +497,13 @@ fn derive_enum(s: &DataEnum, structure: &Structure) -> Result<TokenStream2> {
     };
     let tag_layout_fn = quote! {
       #[allow(dead_code)]
-      #vis const fn #tag_layout_fn_name #impl_generics()->jvm_core::EnumTagLayout #where_clause{
+      #vis const fn #tag_layout_fn_name #impl_generics()->vm_core::EnumTagLayout #where_clause{
           #tag_layout
       }
     };
     #[allow(dead_code)]
     let layout_fn = quote! {
-      #vis const fn #layout_fn_name #impl_generics()->jvm_core::TypeLayout #where_clause{
+      #vis const fn #layout_fn_name #impl_generics()->vm_core::TypeLayout #where_clause{
           #enum_layout
       }
     };
@@ -538,24 +538,24 @@ fn derive_enum(s: &DataEnum, structure: &Structure) -> Result<TokenStream2> {
           #(#associations)*
       }
       #[allow(dead_code)]
-      impl #impl_generics jvm_core::TypeDeclaration for #name #ty_generics #where_clause{
+      impl #impl_generics vm_core::TypeDeclaration for #name #ty_generics #where_clause{
         type Impl=#impl_type_name #ty_generics;
-        const LAYOUT: jvm_core::TypeLayout = <#impl_type_name #ty_generics>::LAYOUT;
-        const TYPE: jvm_core::Type = <#impl_type_name #ty_generics>::TYPE;
+        const LAYOUT: vm_core::TypeLayout = <#impl_type_name #ty_generics>::LAYOUT;
+        const TYPE: vm_core::Type = <#impl_type_name #ty_generics>::TYPE;
       }
       #[repr(C)]
       #vis struct #impl_type_name #impl_generics(#vis[u8;#layout_fn_name #ty_generics_trubofish().size()],#phantom)#where_clause;
       #[allow(dead_code)]
       impl #impl_generics #impl_type_name #ty_generics #where_clause{
-        #vis const TAG_LAYOUT:jvm_core::EnumTagLayout=#tag_layout_fn_name #ty_generics_trubofish();
-        #vis const LAYOUT: jvm_core::TypeLayout=#layout_fn_name #ty_generics_trubofish();
-        #vis const TYPE:jvm_core::Type=jvm_core::Type::Enum(runtime::_util::CowArc::Ref(
+        #vis const TAG_LAYOUT:vm_core::EnumTagLayout=#tag_layout_fn_name #ty_generics_trubofish();
+        #vis const LAYOUT: vm_core::TypeLayout=#layout_fn_name #ty_generics_trubofish();
+        #vis const TYPE:vm_core::Type=vm_core::Type::Enum(runtime::_util::CowArc::Ref(
             runtime::_util::inline_const!(
-               #impl_generics[&'static jvm_core::Enum]
-              &jvm_core::Enum{
+               #impl_generics[&'static vm_core::Enum]
+              &vm_core::Enum{
                 variants:runtime::_util::CowArc::Ref(
                   runtime::_util::inline_const!(
-                     #impl_generics[&'static [jvm_core::Type]]
+                     #impl_generics[&'static [vm_core::Type]]
                     &[#(#variant_declarations),*]
                  )),
                 tag_layout: #tag_layout,
@@ -578,7 +578,7 @@ fn derive_fields(fields: &Fields, structure: &Structure, name: Ident, attr: Opti
     let trait_type_name = format_ident!("{}Trait", &name, span = name.span());
     let mod_name = format_ident!("{}", util::camel_case_ident_to_snake_case_ident(&name.to_string()), span = name.span());
     let layout_fn_name = format_ident!("{}_layout", util::camel_case_ident_to_snake_case_ident(&name.to_string()), span = name.span());
-    let mut struct_layout_builder = quote! {jvm_core::StructLayoutBuilder::new()};
+    let mut struct_layout_builder = quote! {vm_core::StructLayoutBuilder::new()};
     let mut fields_derive = Vec::new();
     let mut fields_declaration = Vec::new();
     let mut associations_declaration = Vec::new();
@@ -625,7 +625,7 @@ fn derive_fields(fields: &Fields, structure: &Structure, name: Ident, attr: Opti
             getter_impl = quote! {ptr.cast::<u8>().add(Self::#layout_of.offset()).cast::<usize>().read()};
             setter_impl = quote! {data.to_usize()};
         } else {
-            getter_impl = quote! {ptr.cast::<u8>().add(Self::#layout_of.offset()).cast::<<#ty as jvm_core::TypeDeclaration>::Impl>().read()};
+            getter_impl = quote! {ptr.cast::<u8>().add(Self::#layout_of.offset()).cast::<<#ty as vm_core::TypeDeclaration>::Impl>().read()};
             setter_impl = quote! {data};
         }
         if let Some(mask) = field_attr.mask.as_ref() {
@@ -651,17 +651,17 @@ fn derive_fields(fields: &Fields, structure: &Structure, name: Ident, attr: Opti
         if field_attr.bit_offset.is_some() || field_attr.mask.is_some() {
             setter_impl = quote! {ptr.cast::<u8>().add(Self::#layout_of.offset()).cast::<usize>().write(#setter_impl)};
         } else {
-            setter_impl = quote! {ptr.cast::<u8>().add(Self::#layout_of.size()).cast::<<#ty as jvm_core::TypeDeclaration>::Impl>().write(#setter_impl)};
+            setter_impl = quote! {ptr.cast::<u8>().add(Self::#layout_of.size()).cast::<<#ty as vm_core::TypeDeclaration>::Impl>().write(#setter_impl)};
         }
         let get_ref_impl = if !is_compose && field_attr.bit_offset.is_none() || field_attr.mask.is_none() {
             Some(quote! {
               #[inline(always)]
-              #vis fn #get_ref(&self)->&<#ty as jvm_core::TypeDeclaration>::Impl{
-                unsafe{Option::unwrap_unchecked((self as *const Self as *const u8).add(Self::#layout_of.offset()).cast::<<#ty as jvm_core::TypeDeclaration>::Impl>().as_ref())}
+              #vis fn #get_ref(&self)->&<#ty as vm_core::TypeDeclaration>::Impl{
+                unsafe{Option::unwrap_unchecked((self as *const Self as *const u8).add(Self::#layout_of.offset()).cast::<<#ty as vm_core::TypeDeclaration>::Impl>().as_ref())}
               }
               #[inline(always)]
-              #vis fn #get_ref_mut(&mut self)->&mut <#ty as jvm_core::TypeDeclaration>::Impl{
-                unsafe{Option::unwrap_unchecked((self as *mut Self as *mut u8).add(Self::#layout_of.offset()).cast::<<#ty as jvm_core::TypeDeclaration>::Impl>().as_mut())}
+              #vis fn #get_ref_mut(&mut self)->&mut <#ty as vm_core::TypeDeclaration>::Impl{
+                unsafe{Option::unwrap_unchecked((self as *mut Self as *mut u8).add(Self::#layout_of.offset()).cast::<<#ty as vm_core::TypeDeclaration>::Impl>().as_mut())}
               }
             })
         } else {
@@ -672,18 +672,18 @@ fn derive_fields(fields: &Fields, structure: &Structure, name: Ident, attr: Opti
         } else {
             Some(quote! {
               #[inline(always)]
-              #vis fn #setter(&mut self,data:<#ty as jvm_core::TypeDeclaration>::Impl){
+              #vis fn #setter(&mut self,data:<#ty as vm_core::TypeDeclaration>::Impl){
                 let ptr=self as *mut Self;
                 unsafe{#setter_impl}
               }
             })
         };
         fields_derive.push(quote! {
-          #vis const #layout_of:jvm_core::StructLayoutBuilder=#struct_layout_builder;
+          #vis const #layout_of:vm_core::StructLayoutBuilder=#struct_layout_builder;
           #get_ref_impl
           #assert_size
           #[inline(always)]
-          #vis fn #getter(&self)-><#ty as jvm_core::TypeDeclaration>::Impl{
+          #vis fn #getter(&self)-><#ty as vm_core::TypeDeclaration>::Impl{
             let ptr=self as *const Self;
             unsafe{#getter_impl}
           }
@@ -693,11 +693,11 @@ fn derive_fields(fields: &Fields, structure: &Structure, name: Ident, attr: Opti
             let bit_offset = field_attr.bit_offset.as_ref().map(|n| n.get()).unwrap_or(0);
             let mask = field_attr.mask.as_ref().map(|m| m.to_usize()).unwrap_or(usize::MAX);
             struct_layout_builder = quote! {
-              #struct_layout_builder.extend_compose(#bit_offset,#mask,<#ty as jvm_core::TypeDeclaration>::LAYOUT)
+              #struct_layout_builder.extend_compose(#bit_offset,#mask,<#ty as vm_core::TypeDeclaration>::LAYOUT)
             };
         } else {
             struct_layout_builder = quote! {
-              #struct_layout_builder.extend(<#ty as jvm_core::TypeDeclaration>::LAYOUT)
+              #struct_layout_builder.extend(<#ty as vm_core::TypeDeclaration>::LAYOUT)
             };
         }
         if !is_unsized && !field_attr.is_unsized && struct_attr.make_instruction {
@@ -722,17 +722,17 @@ fn derive_fields(fields: &Fields, structure: &Structure, name: Ident, attr: Opti
             let bit_offset = field_attr.bit_offset.map(|bit_offset| bit_offset.get()).unwrap_or(0);
             let bit_offset_i8 = bit_offset as i8;
             let small_field = quote! {
-                jvm_core::SmallElementLayout{mask:#mask,bit_offset:#bit_offset_i8}
+                vm_core::SmallElementLayout{mask:#mask,bit_offset:#bit_offset_i8}
             };
             fields_declaration.push(quote! {
                 (
-                    <#ty as jvm_core::TypeDeclaration>::TYPE
+                    <#ty as vm_core::TypeDeclaration>::TYPE
                     #small_field,
                 )
             });
         } else {
             fields_declaration.push(quote! {
-                <#ty as jvm_core::TypeDeclaration>::TYPE
+                <#ty as vm_core::TypeDeclaration>::TYPE
             });
             if struct_attr.make_instruction {
                 let ident_name_in_camel_case = util::to_camel_case(&ident.to_string());
@@ -767,10 +767,10 @@ fn derive_fields(fields: &Fields, structure: &Structure, name: Ident, attr: Opti
     }
     let tuple = if is_compose {
         quote! {
-            jvm_core::Tuple::Compose(
+            vm_core::Tuple::Compose(
                 runtime::_util::CowArc::Ref(
                     runtime::_util::inline_const!(
-                        #impl_generics[&'static[(jvm_core::Type,jvm_core::SmallElementLayout)]]
+                        #impl_generics[&'static[(vm_core::Type,vm_core::SmallElementLayout)]]
                         &[#(#fields_declaration),*]
                         )
                     )
@@ -778,10 +778,10 @@ fn derive_fields(fields: &Fields, structure: &Structure, name: Ident, attr: Opti
         }
     } else {
         quote! {
-            jvm_core::Tuple::Normal(
+            vm_core::Tuple::Normal(
                 runtime::_util::CowArc::Ref(
                     runtime::_util::inline_const!(
-                        #impl_generics[&'static[jvm_core::Type]]
+                        #impl_generics[&'static[vm_core::Type]]
                         &[#(#fields_declaration),*]
                         )
                     )
@@ -790,7 +790,7 @@ fn derive_fields(fields: &Fields, structure: &Structure, name: Ident, attr: Opti
     };
     let layout_fn = quote! {
       #[allow(dead_code)]
-      #vis const fn #layout_fn_name #impl_generics()->jvm_core::TypeLayout #where_clause{
+      #vis const fn #layout_fn_name #impl_generics()->vm_core::TypeLayout #where_clause{
         #struct_layout_builder.build()
       }
     };
@@ -821,17 +821,17 @@ fn derive_fields(fields: &Fields, structure: &Structure, name: Ident, attr: Opti
           #(#associations)*
       }
       #[allow(dead_code)]
-      impl #impl_generics jvm_core::TypeDeclaration for #name #ty_generics #where_clause{
+      impl #impl_generics vm_core::TypeDeclaration for #name #ty_generics #where_clause{
         type Impl=#impl_type_name #ty_generics;
-        const LAYOUT: jvm_core::TypeLayout = <#impl_type_name #ty_generics>::LAYOUT;
-        const TYPE: jvm_core::Type = <#impl_type_name #ty_generics>::TYPE;
+        const LAYOUT: vm_core::TypeLayout = <#impl_type_name #ty_generics>::LAYOUT;
+        const TYPE: vm_core::Type = <#impl_type_name #ty_generics>::TYPE;
       }
       #[allow(dead_code)]
       #[repr(C)]
       #vis struct #impl_type_name #generics (#vis[u8;#layout_fn_name #ty_generics_trubofish().size()])#where_clause ;
       impl #generics #impl_type_name #ty_generics #where_clause{
-        #vis const LAYOUT:jvm_core::TypeLayout=#layout_fn_name #ty_generics_trubofish();
-        #vis const TYPE:jvm_core::Type=jvm_core::Type::Tuple(#tuple);
+        #vis const LAYOUT:vm_core::TypeLayout=#layout_fn_name #ty_generics_trubofish();
+        #vis const TYPE:vm_core::Type=vm_core::Type::Tuple(#tuple);
         #(#fields_derive)*
       }
     })

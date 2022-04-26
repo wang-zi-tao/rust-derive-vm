@@ -625,13 +625,13 @@ impl MetadataDeclaration {
             match &gen.kind {
                 GenericsDeclarationKind::Constant { ty: value_type, .. } => {
                     let name = format_ident!("generics_{}", &gen.name);
-                    get_align.push(quote! { align=usize::max(align, <#value_type as jvm_core::TypeDeclaration>::LAYOUT.align()); });
+                    get_align.push(quote! { align=usize::max(align, <#value_type as vm_core::TypeDeclaration>::LAYOUT.align()); });
                     emit_args.push(quote! {
-                      #name : <#value_type as jvm_core::TypeDeclaration>::Impl
+                      #name : <#value_type as vm_core::TypeDeclaration>::Impl
                     });
                     emit_generic.push(quote! {
-                        builder.codes().borrow_mut(token).align(<#value_type as jvm_core::TypeDeclaration>::LAYOUT.align());
-                        <<#value_type as jvm_core::TypeDeclaration>::Impl as jvm_core::MoveIntoObject>::append( #name, builder.codes(),token);
+                        builder.codes().borrow_mut(token).align(<#value_type as vm_core::TypeDeclaration>::LAYOUT.align());
+                        <<#value_type as vm_core::TypeDeclaration>::Impl as vm_core::MoveIntoObject>::append( #name, builder.codes(),token);
                     });
                 }
                 GenericsDeclarationKind::BasicBlock => {
@@ -685,7 +685,7 @@ impl MetadataDeclaration {
           #[allow(dead_code)]
           pub fn emit<'l,S: runtime::instructions::InstructionSet,#alloc>(
             builder: &runtime::code::BlockBuilder<'l,S>,
-            token:&mut jvm_core::_ghost_cell::GhostToken<'l>,
+            token:&mut vm_core::_ghost_cell::GhostToken<'l>,
             #(#emit_args),*
           )->runtime::_failure::Fallible<()>
           where
@@ -717,7 +717,7 @@ impl MetadataDeclaration {
             metadata_operands.push(quote! {
               runtime::instructions::OperandMetadata {
                 name: std::borrow::Cow::Borrowed(&#name),
-                value_type:<#value_type as jvm_core::TypeDeclaration>::TYPE,
+                value_type:<#value_type as vm_core::TypeDeclaration>::TYPE,
                 input:true,
                 output:#output,
               }
@@ -730,7 +730,7 @@ impl MetadataDeclaration {
                 metadata_operands.push(quote! {
                   runtime::instructions::OperandMetadata {
                     name:std::borrow::Cow::Borrowed(&#name),
-                    value_type:<#value_type as jvm_core::TypeDeclaration>::TYPE,
+                    value_type:<#value_type as vm_core::TypeDeclaration>::TYPE,
                     input:false,
                     output:true,
                   }
@@ -761,7 +761,7 @@ impl MetadataDeclaration {
             metadata_generic.push(quote! {
              runtime::instructions::GenericsMetadata{
                name: std::borrow::Cow::Borrowed("__state"),
-               kind: runtime::instructions::GenericsMetadataKind::Constant{value_type:jvm_core::Type::Int(jvm_core::IntKind::U8),writable:true}
+               kind: runtime::instructions::GenericsMetadataKind::Constant{value_type:vm_core::Type::Int(vm_core::IntKind::U8),writable:true}
              }
             });
         }
@@ -946,7 +946,7 @@ impl StatDeclaration {
                 Ok(quote_spanned! {variable.name.span()=>
                   runtime::instructions::Phi{
                     variable: std::borrow::Cow::Borrowed(&#var),
-                    ty: <#ty as jvm_core::TypeDeclaration>::TYPE,
+                    ty: <#ty as vm_core::TypeDeclaration>::TYPE,
                     map: runtime::_util::CowSlice::Ref(
                       runtime::_util::inline_const!(
                         #impl_generics[&'static[(std::borrow::Cow<'static,str>,std::borrow::Cow<'static,str>)]]

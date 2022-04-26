@@ -23,7 +23,7 @@ use inkwell::{
     },
     AddressSpace, AtomicOrdering, FloatPredicate, IntPredicate,
 };
-use jvm_core::{FloatKind, IntKind, MaybeDefinedResource, Tuple, Type, TypeResource};
+use vm_core::{FloatKind, IntKind, MaybeDefinedResource, Tuple, Type, TypeResource};
 use std::convert::TryInto;
 use util::{CowArc, CowSlice};
 
@@ -471,7 +471,7 @@ pub(crate) fn vm_type_to_llvm_type<'ctx>(ty: &Type, context: &'ctx Context) -> R
         }
     })
 }
-pub(crate) fn function_type_to_llvm_type<'ctx>(function: &jvm_core::FunctionType, context: &'ctx Context) -> Result<FunctionType<'ctx>> {
+pub(crate) fn function_type_to_llvm_type<'ctx>(function: &vm_core::FunctionType, context: &'ctx Context) -> Result<FunctionType<'ctx>> {
     let mut args = Vec::new();
     for arg in function.args() {
         args.push(vm_type_to_llvm_type(arg, context)?.into());
@@ -972,13 +972,13 @@ impl<'ctx, 'm> LLVMFunctionBuilder<'ctx> {
                     let enum_value = get!(args, enum_llvm_type, 0);
                     match &enum_type {
                         Type::Enum(enum_ty) => match enum_ty.tag_layout {
-                            jvm_core::EnumTagLayout::UndefinedValue { end, start } => {
+                            vm_core::EnumTagLayout::UndefinedValue { end, start } => {
                                 let raw_tag = builder.build_int_sub(enum_value.into_int_value(),usize_type.const_int(start as u64, false), "raw_enum");
                                 let is_zero = builder.build_int_compare(IntPredicate::UGE, raw_tag, context.i64_type().const_int((end - start) as u64, false), "is_zero");
                                 let tag = builder.build_select(is_zero, usize_type.const_int(0, false), builder.build_int_add(raw_tag,usize_type.const_int(1, false),"non_zero_tag"), "tag");
                                 store_operand!(1, tag);
                             }
-                            jvm_core::EnumTagLayout::SmallField(layout) => {
+                            vm_core::EnumTagLayout::SmallField(layout) => {
                                 let enum_llvm_int_type = enum_llvm_type.into_int_type();
                                 let mask = enum_llvm_int_type.const_int(layout.mask() as u64, true);
                                 let masked = builder.build_and(mask, enum_value.into_int_value(), "masked");
@@ -989,8 +989,8 @@ impl<'ctx, 'm> LLVMFunctionBuilder<'ctx> {
                                 };
                                 store_operand!(1, shifted_value.into());
                             }
-                            jvm_core::EnumTagLayout::UnusedBytes { offset: _, size: _ } => return Err(ExceptComposeEnumType(enum_type)),
-                            jvm_core::EnumTagLayout::AppendTag { offset: _, size: _ } => {
+                            vm_core::EnumTagLayout::UnusedBytes { offset: _, size: _ } => return Err(ExceptComposeEnumType(enum_type)),
+                            vm_core::EnumTagLayout::AppendTag { offset: _, size: _ } => {
                                 store_operand!(1, builder.build_extract_value(enum_value.into_struct_value(), 1, "variant").unwrap());
                             }
                         },
@@ -1003,10 +1003,10 @@ impl<'ctx, 'm> LLVMFunctionBuilder<'ctx> {
                     let enum_ptr_value = get!(args, enum_llvm_type.ptr_type(AddressSpace::Generic).into(), 0);
                     match &enum_type {
                         Type::Enum(enum_ty) => match enum_ty.tag_layout {
-                            jvm_core::EnumTagLayout::UnusedBytes { .. }
-                            | jvm_core::EnumTagLayout::UndefinedValue { .. }
-                            | jvm_core::EnumTagLayout::SmallField(_) => return Err(ExceptNormalEnumType(enum_type)),
-                            jvm_core::EnumTagLayout::AppendTag { offset: _, size: _ } => {
+                            vm_core::EnumTagLayout::UnusedBytes { .. }
+                            | vm_core::EnumTagLayout::UndefinedValue { .. }
+                            | vm_core::EnumTagLayout::SmallField(_) => return Err(ExceptNormalEnumType(enum_type)),
+                            vm_core::EnumTagLayout::AppendTag { offset: _, size: _ } => {
                                 let tag = builder.build_load(
                                     builder
                                         .build_struct_gep(enum_ptr_value.into_pointer_value(), 1, "tag_ptr")
@@ -1025,10 +1025,10 @@ impl<'ctx, 'm> LLVMFunctionBuilder<'ctx> {
                     let e = get!(args, enum_llvm_type.ptr_type(AddressSpace::Generic).into(), 0);
                     match &enum_type {
                         Type::Enum(enum_ty) => match enum_ty.tag_layout {
-                            jvm_core::EnumTagLayout::UnusedBytes { .. }
-                            | jvm_core::EnumTagLayout::UndefinedValue { .. }
-                            | jvm_core::EnumTagLayout::SmallField(_) => return Err(ExceptNormalEnumType(enum_type)),
-                            jvm_core::EnumTagLayout::AppendTag { offset: _, size: _ } => {
+                            vm_core::EnumTagLayout::UnusedBytes { .. }
+                            | vm_core::EnumTagLayout::UndefinedValue { .. }
+                            | vm_core::EnumTagLayout::SmallField(_) => return Err(ExceptNormalEnumType(enum_type)),
+                            vm_core::EnumTagLayout::AppendTag { offset: _, size: _ } => {
                                 let tag = get!(args, usize_type.into(), 1);
                                 builder.build_store(
                                     builder
@@ -1048,7 +1048,7 @@ impl<'ctx, 'm> LLVMFunctionBuilder<'ctx> {
                     let enum_value = get!(args, enum_llvm_type, 0);
                     match &enum_type {
                         Type::Enum(enum_ty) => match enum_ty.tag_layout {
-                            jvm_core::EnumTagLayout::UndefinedValue { end: _, start: _ } => {
+                            vm_core::EnumTagLayout::UndefinedValue { end: _, start: _ } => {
                                 let variant_type = enum_ty.variants.get(index).ok_or_else(|| VariantIndexOutOfRange(enum_type.clone(), index))?;
                                 let variant_llvm_type = vm_type_to_llvm_type(variant_type, context)?;
                                 if index != 0 {
@@ -1058,7 +1058,7 @@ impl<'ctx, 'm> LLVMFunctionBuilder<'ctx> {
                                     store_operand!(1, value);
                                 }
                             }
-                            jvm_core::EnumTagLayout::SmallField(layout) => {
+                            vm_core::EnumTagLayout::SmallField(layout) => {
                                 let variant_type = enum_ty.variants.get(index).ok_or_else(|| VariantIndexOutOfRange(enum_type.clone(), index))?;
                                 let variant_llvm_type = vm_type_to_llvm_type(variant_type, context)?;
                                 let variant = builder.build_and(
@@ -1069,8 +1069,8 @@ impl<'ctx, 'm> LLVMFunctionBuilder<'ctx> {
                                 let variant_value = bitcast_from_int(variant, context, builder, variant_llvm_type)?;
                                 store_operand!(1, variant_value);
                             }
-                            jvm_core::EnumTagLayout::UnusedBytes { offset: _, size: _ } => return Err(ExceptComposeEnumType(enum_type)),
-                            jvm_core::EnumTagLayout::AppendTag { offset: _, size: _ } => {
+                            vm_core::EnumTagLayout::UnusedBytes { offset: _, size: _ } => return Err(ExceptComposeEnumType(enum_type)),
+                            vm_core::EnumTagLayout::AppendTag { offset: _, size: _ } => {
                                 store_operand!(1, builder.build_extract_value(enum_value.into_struct_value(), 0, "variant").unwrap());
                             }
                         },
@@ -1088,7 +1088,7 @@ impl<'ctx, 'm> LLVMFunctionBuilder<'ctx> {
                             let variant_llvm_type = vm_type_to_llvm_type(variant_type, context)?;
                             let variant = get!(args, variant_llvm_type, 0);
                             match enum_ty.tag_layout {
-                                jvm_core::EnumTagLayout::UndefinedValue { end: _, start } => {
+                                vm_core::EnumTagLayout::UndefinedValue { end: _, start } => {
                                     if index != 0 {
                                         store_operand!(1, enum_llvm_type.into_int_type().const_int((start + index - 1) as u64, false).into());
                                     } else {
@@ -1104,7 +1104,7 @@ impl<'ctx, 'm> LLVMFunctionBuilder<'ctx> {
                                         store_operand!(1, enum_value.into());
                                     }
                                 }
-                                jvm_core::EnumTagLayout::SmallField(layout) => {
+                                vm_core::EnumTagLayout::SmallField(layout) => {
                                     let enum_llvm_int_type = enum_llvm_type.into_int_type();
                                     let variant_int = if variant_layout.size() == 0 {
                                         enum_llvm_type.into_int_type().const_zero()
@@ -1145,8 +1145,8 @@ impl<'ctx, 'm> LLVMFunctionBuilder<'ctx> {
                                     );
                                     store_operand!(1, enum_value.into());
                                 }
-                                jvm_core::EnumTagLayout::UnusedBytes { offset: _, size: _ } => return Err(ExceptComposeEnumType(enum_type)),
-                                jvm_core::EnumTagLayout::AppendTag { offset: _, size: _ } => {
+                                vm_core::EnumTagLayout::UnusedBytes { offset: _, size: _ } => return Err(ExceptComposeEnumType(enum_type)),
+                                vm_core::EnumTagLayout::AppendTag { offset: _, size: _ } => {
                                     let enum_value = enum_llvm_type.into_struct_type().const_zero();
                                     let enum_value = builder.build_insert_value(enum_value, variant, 0, "variant_cast").unwrap();
                                     let enum_value =

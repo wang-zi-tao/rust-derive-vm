@@ -1,10 +1,8 @@
 use std::borrow::{Borrow, Cow};
 
-use jvm_core::Type;
+use vm_core::Type;
 
 use util::{CowArc, CowSlice};
-
-
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum BootstrapInstruction {
@@ -409,8 +407,8 @@ pub struct State {
 pub mod bootstrap {
 
     use failure::Fallible;
-    use ghost_cell::{GhostToken};
-    use jvm_core::{Slice, TypeDeclaration};
+    use ghost_cell::GhostToken;
+    use vm_core::{Slice, TypeDeclaration};
 
     use crate::{
         code::{BlockBuilder, Register, RegisterPool},

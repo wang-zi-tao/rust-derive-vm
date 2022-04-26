@@ -12,7 +12,6 @@ use std::{cell::UnsafeCell, collections::HashMap};
 
 use failure::Fallible;
 use interpreter::Interpreter;
-use jvm_core::{ExecutableResourceTrait, ObjectRef, ResourceFactory};
 use lazy_static::lazy_static;
 use lexical::Lexical;
 use lua_lexical::LuaLexical;
@@ -20,6 +19,7 @@ use mem::*;
 use memory_mmmu::MemoryMMMU;
 use runtime::code::FunctionPack;
 use runtime_extra::{Bool, NullableOptionImpl, NullablePointerImpl, U64};
+use vm_core::{ExecutableResourceTrait, ObjectRef, ResourceFactory};
 
 use crate::ir::LuaInstructionSet;
 #[macro_use]

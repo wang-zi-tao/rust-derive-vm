@@ -10,7 +10,6 @@ use crate::{
     modifiers::{parse_modifiers, HasModifier},
     ClassGraph,
 };
-use jvm_core::FieldLayoutTrait;
 use std::{
     borrow::Borrow,
     fmt::Debug,
@@ -19,6 +18,7 @@ use std::{
     sync::{Arc, Weak},
 };
 use util::PooledStr;
+use vm_core::FieldLayoutTrait;
 #[derive(Debug)]
 pub struct Field {
     member_info: MemberInfo,
@@ -36,24 +36,9 @@ impl Field {
         let class: Arc<JavaClass> = class_loader.get_class(&field.descriptor)?;
         let modifiers = parse_modifiers(field.access_flags, &field.attributes);
         let annotations = Annotations::parse(&field.attributes, class_loader)?;
-        let field_type = GenericType::from_field_signature(
-            &field.descriptor,
-            &class,
-            &field.attributes,
-            class_loader,
-            &**declaring,
-        )?;
+        let field_type = GenericType::from_field_signature(&field.descriptor, &class, &field.attributes, class_loader, &**declaring)?;
 
-        Ok(Self {
-            member_info: MemberInfo {
-                name: field.name.clone(),
-                modifiers,
-                annotations,
-                declaring: Arc::downgrade(&declaring),
-            },
-            layout,
-            field_type,
-        })
+        Ok(Self { member_info: MemberInfo { name: field.name.clone(), modifiers, annotations, declaring: Arc::downgrade(&declaring) }, layout, field_type })
     }
 }
 impl HasModifier for Field {
@@ -97,41 +82,27 @@ impl Field {
     }
 }
 impl AnnotatedElement for Field {
-    fn get_annotation(
-        &self,
-        annotation_class: &JavaClassRef,
-    ) -> Fallible<Option<Arc<jvm_core::OOPRef>>> {
+    fn get_annotation(&self, annotation_class: &JavaClassRef) -> Fallible<Option<Arc<vm_core::OOPRef>>> {
         todo!()
     }
 
-    fn get_annotations(&self) -> Fallible<Box<dyn Iterator<Item = Arc<jvm_core::OOPRef>>>> {
+    fn get_annotations(&self) -> Fallible<Box<dyn Iterator<Item = Arc<vm_core::OOPRef>>>> {
         todo!()
     }
 
-    fn get_annotation_by_type(
-        &self,
-        annotation_class: &JavaClassRef,
-    ) -> Fallible<Option<Arc<jvm_core::OOPRef>>> {
+    fn get_annotation_by_type(&self, annotation_class: &JavaClassRef) -> Fallible<Option<Arc<vm_core::OOPRef>>> {
         todo!()
     }
 
-    fn get_declared_annotation(
-        &self,
-        annotation_class: &JavaClassRef,
-    ) -> Fallible<Option<Arc<jvm_core::OOPRef>>> {
+    fn get_declared_annotation(&self, annotation_class: &JavaClassRef) -> Fallible<Option<Arc<vm_core::OOPRef>>> {
         todo!()
     }
 
-    fn get_declared_annotations(
-        &self,
-    ) -> Fallible<Box<dyn Iterator<Item = Arc<jvm_core::OOPRef>>>> {
+    fn get_declared_annotations(&self) -> Fallible<Box<dyn Iterator<Item = Arc<vm_core::OOPRef>>>> {
         todo!()
     }
 
-    fn get_declared_annotation_by_type(
-        &self,
-        annotation_class: &JavaClassRef,
-    ) -> Fallible<Option<Arc<jvm_core::OOPRef>>> {
+    fn get_declared_annotation_by_type(&self, annotation_class: &JavaClassRef) -> Fallible<Option<Arc<vm_core::OOPRef>>> {
         todo!()
     }
 

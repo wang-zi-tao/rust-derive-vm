@@ -33,7 +33,7 @@ use std::{
     hash::Hash,
     mem::size_of,
     ptr::NonNull,
-    sync::{Arc},
+    sync::Arc,
 };
 
 use alloc::{GlobalHeap, GlobalSingleTypeHeapPool};
@@ -42,15 +42,16 @@ use dashmap::{DashSet, SharedValue};
 use failure::{format_err, Fallible};
 use graph::{scan_assign, scan_reference, AssignGraph, ReferenceGraph, TypeAssignEdge, TypeReferenceEdge, GRAPH_HANDLE};
 use heap::{AllocationStrategy, HEAP_LARGE_SEGMENT_SIZE, HEAP_PAGE_SIZE, HEAP_SEGMENT_SIZE};
-use jvm_core::{
-    Component, MemoryTrait, Module, OOPTrait, Resource, ResourceError, ResourceFactory, ResourceState, Singleton, SingletonDyn, Tuple, Type, TypeLayout, TypeResource,
-};
 use mark::GlobalMarkSet;
 use metadata::MetadataList;
 use plan::TypeStatistice;
 use runtime::mem::MemoryInstructionSetProvider;
 use runtime_instruction_set::MEMORY_INSTRUCTION_SET;
 use util::{AtomicLazyArc, CowArc, CowWeak, DefaultArc, EmbedGraph};
+use vm_core::{
+    Component, MemoryTrait, Module, OOPTrait, Resource, ResourceError, ResourceFactory, ResourceState, Singleton, SingletonDyn, Tuple, Type, TypeLayout,
+    TypeResource,
+};
 
 #[derive(Default, Getters)]
 #[getset(get = "pub(crate)")]
@@ -257,7 +258,7 @@ impl Debug for RegistedType {
     }
 }
 impl Resource<Type> for RegistedType {
-    fn get_state(&self) -> jvm_core::ResourceState {
+    fn get_state(&self) -> vm_core::ResourceState {
         if self.ty.is_loaded() {
             ResourceState::Ready
         } else {
@@ -290,7 +291,7 @@ impl TypeResource for RegistedType {
         Ok(crate::alloc::try_alloc_unsized(self, len)?)
     }
 
-    unsafe fn free(&self, _oop: jvm_core::OOPRef) -> Fallible<()> {
+    unsafe fn free(&self, _oop: vm_core::OOPRef) -> Fallible<()> {
         self.to_ready_state()?;
         todo!()
     }
@@ -299,7 +300,7 @@ impl TypeResource for RegistedType {
         Ok(&self.ty.load_option().ok_or(ResourceError::NotInitialized)?.0)
     }
 
-    fn get_layout(&self) -> Fallible<jvm_core::TypeLayout> {
+    fn get_layout(&self) -> Fallible<vm_core::TypeLayout> {
         Ok(self.ty.load_option().ok_or(ResourceError::NotInitialized)?.1)
     }
 

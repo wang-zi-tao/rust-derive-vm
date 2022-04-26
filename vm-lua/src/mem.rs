@@ -1,7 +1,7 @@
 use crate::TypeResourceImpl;
 
-use jvm_core::{make_reference, Aligned, FunctionType, MoveIntoObject, Native, ObjectBuilder, Pointer, Reference, Resource, SymbolRef, Type, TypeDeclaration, TypeLayout, UnsizedArray};
 use lexical::_lazy_static::lazy_static;
+use vm_core::{make_reference, Aligned, FunctionType, MoveIntoObject, Native, ObjectBuilder, Pointer, Reference, Resource, SymbolRef, Type, TypeDeclaration, TypeLayout, UnsizedArray};
 
 use runtime_extra::ty::*;
 use std::cell::UnsafeCell;
@@ -184,9 +184,9 @@ pub enum LuaFunctionType {}
 impl TypeDeclaration for LuaFunctionType {
     type Impl = LuaFunctionRustType;
 
-    const LAYOUT: jvm_core::TypeLayout = TypeLayout::of::<LuaFunctionRustType>();
+    const LAYOUT: vm_core::TypeLayout = TypeLayout::of::<LuaFunctionRustType>();
 
-    const TYPE: jvm_core::Type = Type::Function(CowArc::Ref(inline_const!(
+    const TYPE: vm_core::Type = Type::Function(CowArc::Ref(inline_const!(
         [&'static FunctionType]
         &FunctionType {
             dispatch: CowSlice::new(),
@@ -199,9 +199,9 @@ pub enum LuaClosureFunctionType {}
 impl TypeDeclaration for LuaClosureFunctionType {
     type Impl = LuaClosureRustType;
 
-    const LAYOUT: jvm_core::TypeLayout = TypeLayout::of::<LuaClosureRustType>();
+    const LAYOUT: vm_core::TypeLayout = TypeLayout::of::<LuaClosureRustType>();
 
-    const TYPE: jvm_core::Type = Type::Function(CowArc::Ref(inline_const!(
+    const TYPE: vm_core::Type = Type::Function(CowArc::Ref(inline_const!(
         [&'static FunctionType]
         &FunctionType {
             dispatch: CowSlice::new(),

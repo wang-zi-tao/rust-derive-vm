@@ -9,4 +9,4 @@ edition = "2021"
 runtime-derive={path="../runtime-derive"}
 runtime-extra={path="../runtime-extra"}
 runtime={path="../runtime"}
-jvm-core={path="../jvm-core"}
+vm-core={path="../vm-core"}

@@ -9,9 +9,9 @@ use crate::{
 };
 use classfile::{attributes::Attribute, ClassFile};
 use failure::{format_err, Fallible};
-use jvm_core::*;
 pub use lifetime::*;
 use std::ops::Deref;
+use vm_core::*;
 
 use std::{
     borrow::Borrow,
@@ -88,10 +88,7 @@ impl JavaClass {
     // pub fn get_executables(&self) -> Fallible<&HashSet<ExecutableBox>> {
     // self.after_loaded_do(|c| Ok(c.executables()))
     // }
-    pub fn get_executable(
-        &self,
-        name_and_parameters: &(PooledStr, PooledStr),
-    ) -> Fallible<Option<&Arc<Executable>>> {
+    pub fn get_executable(&self, name_and_parameters: &(PooledStr, PooledStr)) -> Fallible<Option<&Arc<Executable>>> {
         self.after_loaded_do(|c| Ok(c.executables().get(name_and_parameters)))
     }
 
@@ -145,16 +142,9 @@ pub enum ClassObjectType {
     Class,
 }
 impl JavaClass {
-    fn ensure<'l>(
-        self: &'l Self,
-        check: impl Fn(&Self) -> bool,
-        action: impl Fn(&Self) -> Fallible<()>,
-    ) -> Fallible<()> {
+    fn ensure<'l>(self: &'l Self, check: impl Fn(&Self) -> bool, action: impl Fn(&Self) -> Fallible<()>) -> Fallible<()> {
         if !check(self) {
-            let _guard = self
-                .process_lock
-                .lock()
-                .map_err(|e| format_err!("PoisonError:{:?}", e))?;
+            let _guard = self.process_lock.lock().map_err(|e| format_err!("PoisonError:{:?}", e))?;
             {
                 if !check(self) {
                     action(self);
@@ -167,13 +157,7 @@ impl JavaClass {
     pub fn ensure_loaded<'l>(self: &'l Self) -> Fallible<()> {
         self.ensure(
             |s| s.component.is_loaded(),
-            |s| {
-                self.define_class_loader
-                    .upgrade()
-                    .ok_or_else(|| format_err!("class loader has been droped"))?
-                    .load_class(self)
-                    .map(|b| ())
-            },
+            |s| self.define_class_loader.upgrade().ok_or_else(|| format_err!("class loader has been droped"))?.load_class(self).map(|b| ()),
         )
     }
 
@@ -194,18 +178,12 @@ impl JavaClass {
     //     self.component.load_option().unwrap()
     // }
 
-    fn after_loaded_do<'l, R: 'l>(
-        &'l self,
-        action: impl Fn(&'l JavaClassComponent) -> Fallible<R>,
-    ) -> Fallible<R> {
+    fn after_loaded_do<'l, R: 'l>(&'l self, action: impl Fn(&'l JavaClassComponent) -> Fallible<R>) -> Fallible<R> {
         let mut c = self.component.load_option();
         let component = if let Some(loaded) = c {
             loaded
         } else {
-            self.define_class_loader
-                .upgrade()
-                .ok_or_else(|| format_err!("class loader has been droped"))?
-                .load_class(self)?;
+            self.define_class_loader.upgrade().ok_or_else(|| format_err!("class loader has been droped"))?.load_class(self)?;
             self.component.load()
         };
         action(component)
@@ -216,23 +194,14 @@ impl JavaClass {
     }
 
     pub fn processing(&self) -> Fallible<MutexGuard<()>> {
-        self.process_lock
-            .lock()
-            .map_err(|e| format_err!("PoisonError:{:?}", e))
+        self.process_lock.lock().map_err(|e| format_err!("PoisonError:{:?}", e))
     }
 
     pub fn load_lock(&self) -> Fallible<MutexGuard<()>> {
-        self.load_lock
-            .lock()
-            .map_err(|e| format_err!("PoisonError:{:?}", e))
+        self.load_lock.lock().map_err(|e| format_err!("PoisonError:{:?}", e))
     }
 
-    pub fn define_class(
-        self: &Arc<Self>,
-        init_class_loader: &Arc<ClassLoader>,
-        name: &PooledStr,
-        class_file: ClassFile,
-    ) -> Fallible<()> {
+    pub fn define_class(self: &Arc<Self>, init_class_loader: &Arc<ClassLoader>, name: &PooledStr, class_file: ClassFile) -> Fallible<()> {
         let component = JavaClassComponent::try_load_from_class_file(
             name.clone(),
             self.binary_name.clone(),
@@ -255,42 +224,20 @@ impl JavaClass {
     }
 }
 impl JavaClass {
-    fn get_raw_declared_executable(
-        &self,
-        name_and_descriptor: &(PooledStr, PooledStr),
-    ) -> Fallible<&Arc<Executable>> {
-        self.after_loaded_do(|c| {
-            c.declared_executables()
-                .get(name_and_descriptor)
-                .ok_or_else(|| format_err!("constructor not found"))
-        })
+    fn get_raw_declared_executable(&self, name_and_descriptor: &(PooledStr, PooledStr)) -> Fallible<&Arc<Executable>> {
+        self.after_loaded_do(|c| c.declared_executables().get(name_and_descriptor).ok_or_else(|| format_err!("constructor not found")))
     }
 
-    fn get_raw_executable(
-        &self,
-        name_and_descriptor: &(PooledStr, PooledStr),
-    ) -> Fallible<&Arc<Executable>> {
-        self.after_loaded_do(|c| {
-            c.executables()
-                .get(name_and_descriptor)
-                .ok_or_else(|| format_err!("constructor not found"))
-        })
+    fn get_raw_executable(&self, name_and_descriptor: &(PooledStr, PooledStr)) -> Fallible<&Arc<Executable>> {
+        self.after_loaded_do(|c| c.executables().get(name_and_descriptor).ok_or_else(|| format_err!("constructor not found")))
     }
 
     fn get_raw_declared_field(&self, name: &str) -> Fallible<&Arc<Field>> {
-        self.after_loaded_do(|c| {
-            c.declared_fields()
-                .get(name)
-                .ok_or_else(|| format_err!("field not found"))
-        })
+        self.after_loaded_do(|c| c.declared_fields().get(name).ok_or_else(|| format_err!("field not found")))
     }
 
     fn get_raw_field(&self, name: &str) -> Fallible<&Arc<Field>> {
-        self.after_loaded_do(|c| {
-            c.fields()
-                .get(name)
-                .ok_or_else(|| format_err!("field not found"))
-        })
+        self.after_loaded_do(|c| c.fields().get(name).ok_or_else(|| format_err!("field not found")))
     }
 
     fn get_raw_generic_super_class(&self) -> Fallible<Option<&GenericType>> {
@@ -309,9 +256,7 @@ impl JavaClass {
     }
 }
 impl JavaClass {
-    pub(crate) fn get_raw_interfaces(
-        &self,
-    ) -> Fallible<&HashMap<Arc<JavaClass>, (GenericType, Arc<dyn ImplementLayoutTrait>)>> {
+    pub(crate) fn get_raw_interfaces(&self) -> Fallible<&HashMap<Arc<JavaClass>, (GenericType, Arc<dyn ImplementLayoutTrait>)>> {
         self.after_loaded_do(|c| Ok(c.interfaces()))
     }
 
@@ -323,15 +268,11 @@ impl JavaClass {
         self.after_loaded_do(|c| Ok(c.declared_fields()))
     }
 
-    pub(crate) fn get_raw_executables(
-        &self,
-    ) -> Fallible<&HashMap<(PooledStr, PooledStr), Arc<Executable>>> {
+    pub(crate) fn get_raw_executables(&self) -> Fallible<&HashMap<(PooledStr, PooledStr), Arc<Executable>>> {
         self.after_loaded_do(|c| Ok(c.executables()))
     }
 
-    pub(crate) fn get_raw_declared_executables(
-        &self,
-    ) -> Fallible<&HashMap<(PooledStr, PooledStr), Arc<Executable>>> {
+    pub(crate) fn get_raw_declared_executables(&self) -> Fallible<&HashMap<(PooledStr, PooledStr), Arc<Executable>>> {
         self.after_loaded_do(|c| Ok(c.declared_executables()))
     }
 }
