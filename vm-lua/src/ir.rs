@@ -1,8 +1,7 @@
-use super::{instruction as i};
+use super::instruction as i;
 
-use runtime::instructions::{bootstrap as b};
+use runtime::instructions::bootstrap as b;
 use runtime_extra::{self as e};
-
 
 make_instruction_set! {
   LuaInstructionSet=[
@@ -62,5 +61,6 @@ make_instruction_set! {
     BreakPoint->i::BreakPoint,
     MakeTable->i::MakeTable,MakeTable0->i::MakeTable0,
     ForInLoopJump->i::ForInLoopJump,
+    ConstClosure0->i::ConstClosure0,ConstClosure->i::ConstClosure,
   ]
 }

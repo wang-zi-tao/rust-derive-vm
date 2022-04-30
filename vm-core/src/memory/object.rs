@@ -18,13 +18,13 @@ use hashbrown::HashSet;
 pub enum RelocationKind {
     I8Relative,
     I32Relative,
-    Usize,
+    UsizePtrAbsolute,
 }
 impl RelocationKind {
     pub fn is_relative(&self) -> bool {
         match self {
             RelocationKind::I8Relative | RelocationKind::I32Relative => true,
-            RelocationKind::Usize => false,
+            RelocationKind::UsizePtrAbsolute => false,
         }
     }
 
@@ -32,7 +32,7 @@ impl RelocationKind {
         match self {
             RelocationKind::I8Relative => 1,
             RelocationKind::I32Relative => 4,
-            RelocationKind::Usize => size_of::<usize>(),
+            RelocationKind::UsizePtrAbsolute => size_of::<usize>(),
         }
     }
 }
@@ -51,7 +51,7 @@ impl Relocation {
             match self.relocation_kind {
                 RelocationKind::I8Relative => buffer.get_ptr::<i8>(offset).as_ptr().write_volatile(i8::try_from(arg - ptr).unwrap()),
                 RelocationKind::I32Relative => buffer.get_ptr::<i32>(offset).as_ptr().write_volatile(i32::try_from(arg - ptr).unwrap()),
-                RelocationKind::Usize => buffer.get_ptr::<usize>(offset).as_ptr().write_volatile(usize::try_from(arg).unwrap()),
+                RelocationKind::UsizePtrAbsolute => buffer.get_ptr::<usize>(offset).as_ptr().write_volatile(usize::try_from(arg).unwrap()),
             }
         }
     }
@@ -76,9 +76,11 @@ pub struct Symbol<T: Clone + Hash + Eq> {
     #[builder(default)]
     usage: HashSet<T>,
 }
-#[derive(Clone, Debug, Hash, PartialEq, Eq)]
+#[derive(Clone, Debug, Hash, PartialEq, Eq, Getters, CopyGetters)]
 pub struct SymbolRef {
+    #[getset(get = "pub")]
     object: ObjectRef,
+    #[getset(get_copy = "pub")]
     index: usize,
 }
 
@@ -512,7 +514,7 @@ impl<'l> ObjectBuilderInner<'l> {
         import: ObjectBuilderImport<'l>,
         relocation_kind: RelocationKind,
         symbol_index: usize,
-    ) {
+    ) -> usize {
         let relocation_index = this.borrow(token).relocations.len();
         let offset = this.borrow(token).len();
         match &import {
@@ -531,8 +533,30 @@ impl<'l> ObjectBuilderInner<'l> {
             RelocationKind::I32Relative => {
                 this.borrow_mut(token).receive::<i32>();
             }
-            RelocationKind::Usize => {
+            RelocationKind::UsizePtrAbsolute => {
                 this.borrow_mut(token).receive::<usize>();
+            }
+        }
+        this.borrow_mut(token).relocations.push((import, Relocation { offset, relocation_kind }, symbol_index));
+        offset
+    }
+
+    pub fn set_import(
+        this: &ObjectBuilder<'l>,
+        token: &mut GhostToken<'l>,
+        offset: usize,
+        import: ObjectBuilderImport<'l>,
+        relocation_kind: RelocationKind,
+        symbol_index: usize,
+    ) {
+        let relocation_index = this.borrow(token).relocations.len();
+        match &import {
+            ObjectBuilderImport::Builder(source) => {
+                source.borrow_mut(token).symbols[symbol_index].usage.insert((ObjectBuilderExport::Builder(this.clone()), relocation_index));
+            }
+            ObjectBuilderImport::ObjectRef(_) => {}
+            ObjectBuilderImport::Reflexive => {
+                this.borrow_mut(token).symbols[symbol_index].usage.insert((ObjectBuilderExport::Reflexive, relocation_index));
             }
         }
         this.borrow_mut(token).relocations.push((import, Relocation { offset, relocation_kind }, symbol_index));
@@ -549,10 +573,6 @@ impl<'l> ObjectBuilderInner<'l> {
         relocation.1.relocate(&mut self.buffer, ptr);
         relocation.0 = source.0;
         relocation.2 = source.1;
-    }
-
-    pub fn set_import(&mut self, offset: usize, import: ObjectRef, relocation_kind: RelocationKind, symbol_index: usize) {
-        self.relocations.push((ObjectBuilderImport::ObjectRef(import), Relocation { offset, relocation_kind }, symbol_index));
     }
 
     pub fn build(self) -> Fallible<ObjectRef> {
@@ -698,15 +718,29 @@ impl<'l> ObjectBuilderInner<'l> {
         }
     }
 }
+#[derive(Clone, Debug, Hash, PartialEq, Eq, Getters, CopyGetters)]
+pub struct SymbolBuilderRef<'b> {
+    #[getset(get = "pub")]
+    object_builder: ObjectBuilder<'b>,
+    #[getset(get_copy = "pub")]
+    index: usize,
+}
 
-pub trait MoveIntoObject {
-    fn set<'l>(self, offset: usize, object_builder: &ObjectBuilder<'l>, token: &mut GhostToken<'l>);
-    fn append<'l>(self, object_builder: &ObjectBuilder<'l>, token: &mut GhostToken<'l>)
+impl<'b> SymbolBuilderRef<'b> {
+    pub fn new(object_builder: ObjectBuilder<'b>, index: usize) -> Self {
+        Self { object_builder, index }
+    }
+}
+
+pub trait MoveIntoObject<'l> {
+    type Carrier;
+    fn set(this: Self::Carrier, offset: usize, object_builder: &ObjectBuilder<'l>, token: &mut GhostToken<'l>);
+    fn append(this: Self::Carrier, object_builder: &ObjectBuilder<'l>, token: &mut GhostToken<'l>)
     where
         Self: Sized,
     {
         let offset = object_builder.borrow(token).len();
         object_builder.borrow_mut(token).grow(offset + size_of::<Self>());
-        self.set(offset, object_builder, token)
+        Self::set(this, offset, object_builder, token)
     }
 }

@@ -627,11 +627,11 @@ impl MetadataDeclaration {
                     let name = format_ident!("generics_{}", &gen.name);
                     get_align.push(quote! { align=usize::max(align, <#value_type as vm_core::TypeDeclaration>::LAYOUT.align()); });
                     emit_args.push(quote! {
-                      #name : <#value_type as vm_core::TypeDeclaration>::Impl
+                      #name : <<#value_type as vm_core::TypeDeclaration>::Impl as vm_core::MoveIntoObject<'l>>::Carrier
                     });
                     emit_generic.push(quote! {
                         builder.codes().borrow_mut(token).align(<#value_type as vm_core::TypeDeclaration>::LAYOUT.align());
-                        <<#value_type as vm_core::TypeDeclaration>::Impl as vm_core::MoveIntoObject>::append( #name, builder.codes(),token);
+                        <<#value_type as vm_core::TypeDeclaration>::Impl as vm_core::MoveIntoObject<'l>>::append( #name, builder.codes(),token);
                     });
                 }
                 GenericsDeclarationKind::BasicBlock => {

@@ -808,9 +808,11 @@ impl<T: TypeDeclaration> Clone for Pointer<T> {
     }
 }
 
-impl<T: TypeDeclaration> MoveIntoObject for Pointer<T> {
-    fn set<'l>(self, offset: usize, object_builder: &crate::ObjectBuilder<'l>, token: &mut ghost_cell::GhostToken<'l>) {
-        object_builder.borrow_mut(token).receive_at(offset).write(self.0);
+impl<'l, T: TypeDeclaration> MoveIntoObject<'l> for Pointer<T> {
+    type Carrier = Self;
+
+    fn set(this: Self, offset: usize, object_builder: &crate::ObjectBuilder<'l>, token: &mut ghost_cell::GhostToken<'l>) {
+        object_builder.borrow_mut(token).receive_at(offset).write(this.0);
     }
 }
 

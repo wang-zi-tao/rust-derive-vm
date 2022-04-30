@@ -25,9 +25,11 @@ macro_rules! wrap_type {
             pub const SIZE: usize = size_of::<Self>();
             pub const TYPE: Type = $ty;
         }
-        impl MoveIntoObject for $name {
-            fn set<'l>(self, offset: usize, object_builder: &ObjectBuilder<'l>, token: &mut GhostToken<'l>) {
-                object_builder.borrow_mut(token).receive_at(offset).write(self.0);
+        impl<'l> MoveIntoObject<'l> for $name {
+            type Carrier = Self;
+
+            fn set(this: Self, offset: usize, object_builder: &ObjectBuilder<'l>, token: &mut GhostToken<'l>) {
+                object_builder.borrow_mut(token).receive_at(offset).write(this.0);
             }
         }
     };

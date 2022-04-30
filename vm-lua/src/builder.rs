@@ -11,7 +11,7 @@ use ghost_cell::{GhostCell, GhostToken};
 use log::{debug, trace};
 use runtime::code::{BlockBuilder, BuddyRegisterPool, FunctionBuilder, FunctionPack, RegisterPool};
 use runtime::instructions::bootstrap::MakeSlice;
-use vm_core::{FunctionTypeBuilder, Slice, UnsizedArray};
+use vm_core::{FunctionTypeBuilder, ObjectBuilder, ObjectBuilderImport, ObjectBuilderInner, ObjectRef, RelocationKind, Slice, SymbolBuilder, SymbolBuilderRef, UnsizedArray};
 use vm_core::{Pointer, TypeDeclaration};
 
 use runtime_extra as e;
@@ -200,9 +200,10 @@ pub struct LuaFunctionBuilder<'l> {
     current_block: LuaBlockRef<'l>,
     goto_blocks: HashMap<String, Vec<LuaBlockRef<'l>>>,
     label_blocks: HashMap<String, LuaBlockRef<'l>>,
-    child_closure_slot_map: HashMap<String, usize>,
+    child_closure_slot_map: HashMap<(String, usize), usize>,
     new_child_closure_slot_map: HashMap<String, usize>,
     parent_closure_slot_map: HashMap<String, usize>,
+    constants: ObjectBuilder<'l>,
 }
 impl<'l> LuaFunctionBuilder<'l> {
     pub fn new() -> Self {
@@ -223,6 +224,7 @@ impl<'l> LuaFunctionBuilder<'l> {
             child_closure_slot_map: Default::default(),
             parent_closure_slot_map: Default::default(),
             new_child_closure_slot_map: Default::default(),
+            constants: Default::default(),
         }
     }
     pub fn new_block(&mut self) -> LuaBlockRef<'l> {
@@ -337,14 +339,14 @@ impl<'l> LuaContext<'l> {
     pub fn current_scopt_mut(&mut self) -> &mut LuaScopt<'l> { self.current_scopt.borrow_mut(&mut self.token) }
     pub fn get_value(&mut self, name: String) -> Fallible<LuaExprRef<'l>> {
         for (closure_index, function) in self.closure_stack.iter().rev().enumerate() {
-            for (_scopt_index, scopt) in function.borrow(&self.token).scopts.clone().iter().rev().enumerate() {
+            for (scopt_index, scopt) in function.borrow(&self.token).scopts.clone().iter().enumerate().rev() {
                 if let Some(variable) = scopt.borrow(&self.token).variables.get(&name).cloned() {
                     let expr = if closure_index == 0 {
                         variable.expr.clone()
                     } else {
                         let child_closure_slot_map = &mut function.borrow_mut(&mut self.token).child_closure_slot_map;
                         let slot = child_closure_slot_map.len();
-                        child_closure_slot_map.insert(name.clone(), slot);
+                        child_closure_slot_map.insert((name.clone(), scopt_index), slot);
                         function
                             .borrow_mut(&mut self.token)
                             .new_child_closure_slot_map
@@ -389,7 +391,7 @@ impl<'l> LuaContext<'l> {
     }
     pub fn put_value(&mut self, name: String, value: LuaExprRef<'l>) -> Fallible<()> {
         for (closure_index, function) in self.closure_stack.clone().iter().rev().enumerate() {
-            for (_scopt_index, scopt) in function.borrow(self.token()).scopts.clone().iter().rev().enumerate() {
+            for (scopt_index, scopt) in function.borrow(self.token()).scopts.clone().iter().enumerate().rev() {
                 if let Some(variable) = scopt.borrow(self.token()).variables.get(&name).cloned() {
                     if closure_index == 0 {
                         let operate_kind = Self::trans_binary_type(true, true, &value, &variable.expr);
@@ -411,7 +413,7 @@ impl<'l> LuaContext<'l> {
                         let value = self.to_value(value)?;
                         let child_closure_slot_map = &mut function.borrow_mut(&mut self.token).child_closure_slot_map;
                         let slot = child_closure_slot_map.len();
-                        child_closure_slot_map.insert(name.clone(), slot);
+                        child_closure_slot_map.insert((name.clone(), scopt_index), slot);
                         function
                             .borrow_mut(&mut self.token)
                             .new_child_closure_slot_map
@@ -808,6 +810,7 @@ impl<'l> LuaContext<'l> {
         current_function.current_scopt = current_scopt.clone();
         self.current_scopt = current_scopt;
         // TODO : SetUpValue
+
         Ok(block_split)
     }
     pub fn pack(mut self) -> Fallible<FunctionPack<LuaInstructionSet>> {
@@ -843,7 +846,8 @@ impl<'l> LuaContext<'l> {
             function_builder.add_block(block.borrow(&mut self.token).builder.clone());
         }
         let reg_count = self.current_function().register_pool.borrow().max_allocated();
-        let _pack = function_builder.pack(
+        let obj = ObjectRef::new();
+        let pack = function_builder.pack_into(
             &mut self.token,
             FunctionTypeBuilder::default()
                 .args(vec![LuaStateReference::TYPE, LuaClosureReference::TYPE].into())
@@ -852,12 +856,54 @@ impl<'l> LuaContext<'l> {
                 .build()
                 .unwrap(),
             reg_count,
+            obj.clone(),
         )?;
-        for (_new_closure_variable, _slot) in
-            std::mem::take(&mut self.current_function_mut().new_child_closure_slot_map)
-        {}
+        let constants = self.current_function_mut().constants.clone();
+        let offset = ObjectBuilderInner::push_import(
+            &constants,
+            &mut self.token,
+            ObjectBuilderImport::ObjectRef(obj.clone()),
+            RelocationKind::UsizePtrAbsolute,
+            0,
+        );
+        let symbol_index = constants
+            .borrow_mut(self.token_mut())
+            .add_symbol(SymbolBuilder::default().offset(offset).build().unwrap());
+        let value_reg = self.alloc_register()?;
+        match self.current_function().parent_closure_slot_map.len() {
+            0 => {
+                ConstClosure0::emit(
+                    &self.current_builder,
+                    &mut self.token,
+                    SymbolBuilderRef::new(constants, symbol_index),
+                    &LUA_STATE_REG,
+                    &LUA_UP_VALUES_REG,
+                    &value_reg,
+                )?;
+            }
+            _ => {
+                ConstClosure::emit(
+                    &self.current_builder,
+                    &mut self.token,
+                    SymbolBuilderRef::new(constants, symbol_index),
+                    &LUA_STATE_REG,
+                    &LUA_UP_VALUES_REG,
+                    &LUA_CLOSURE_REG,
+                    &value_reg,
+                )?;
+            }
+        }
+        for (new_closure_variable, slot) in std::mem::take(&mut self.current_function_mut().new_child_closure_slot_map)
+        {
+            todo!();
+        }
         let _slot_count = function.borrow(self.token()).parent_closure_slot_map.len();
-        todo!();
+
+        Ok(Rc::new(
+            LuaExprBuilder::default()
+                .register(LuaRegister::Value(value_reg, None))
+                .build()?,
+        ))
     }
     // [var_list(v),t!(=),expr_list(exprs)]=>cxt.put_values(v,exprs);
     pub fn put_values(&mut self, v: Vec<LuaVar<'l>>, exprs: LuaExprList<'l>) -> Fallible<()> {

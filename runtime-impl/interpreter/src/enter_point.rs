@@ -9,7 +9,9 @@ use inkwell::{
 };
 use libffi::middle::{Callback, Cif, Closure, Type};
 use util::CowArc;
-use vm_core::{FunctionType, IntKind, ObjectBuilder, ObjectRef, SymbolBuilder, Tuple, _ghost_cell::GhostToken};
+use vm_core::{
+    FunctionType, IntKind, ObjectBuilder, ObjectBuilderImport, ObjectBuilderInner, ObjectRef, RelocationKind, SymbolBuilder, Tuple, _ghost_cell::GhostToken,
+};
 
 #[repr(C)]
 pub struct FunctionMetadata {
@@ -177,7 +179,7 @@ impl FunctionBinder {
                 &metadata.bind as *const _ as usize - metadata as *const FunctionMetadata as usize
             };
             object_builder.borrow_mut(&mut token).set_pin(true);
-            object_builder.borrow_mut(&mut token).set_import(offset, code, vm_core::RelocationKind::Usize, 0);
+            ObjectBuilderInner::set_import(&object_builder, &mut token, offset, ObjectBuilderImport::ObjectRef(code), RelocationKind::UsizePtrAbsolute, 0);
             object_builder.borrow_mut(&mut token).add_symbol(SymbolBuilder::default().offset(bind_offset).symbol_kind(vm_core::SymbolKind::Value).build()?);
             Fallible::Ok((object_builder.take(&mut token).build(), metadata_ptr_mut))
         })?;

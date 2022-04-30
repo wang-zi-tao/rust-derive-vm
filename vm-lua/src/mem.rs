@@ -1,10 +1,11 @@
 use crate::TypeResourceImpl;
 
 use lexical::_lazy_static::lazy_static;
-use vm_core::{make_reference, Aligned, FunctionType, MoveIntoObject, Native, ObjectBuilder, Pointer, Reference, Resource, SymbolRef, Type, TypeDeclaration, TypeLayout, UnsizedArray};
+use vm_core::{make_reference, Aligned, FunctionType, MoveIntoObject, Native, ObjectBuilder, ObjectBuilderImport, ObjectBuilderInner, Pointer, Reference, Resource, SymbolBuilderRef, SymbolRef, Type, TypeDeclaration, TypeLayout, UnsizedArray};
 
 use runtime_extra::ty::*;
 use std::cell::UnsafeCell;
+use std::marker::PhantomData;
 use std::{collections::HashMap, hash::Hash};
 use util::{inline_const, CowArc, CowSlice, PooledStr};
 #[derive(TypeDeclaration)]
@@ -74,8 +75,7 @@ make_reference!(LuaStringReference, LuaString, TypeResourceImpl);
 #[make_type(make_instruction)]
 pub struct LuaFunction {
     pub align: Aligned<16>,
-    pub function: LuaFunctionType,
-    pub object_ref: Native<SymbolRef>,
+    pub function: Pointer<LuaFunctionType>,
     pub state: LuaStateReference,
 }
 make_reference!(LuaFunctionReference, LuaFunction, TypeResourceImpl);
@@ -83,13 +83,37 @@ make_reference!(LuaFunctionReference, LuaFunction, TypeResourceImpl);
 #[make_type(make_instruction)]
 pub struct LuaClosure {
     pub align: Aligned<16>,
-    pub function: LuaClosureFunctionType,
-    pub object_ref: Native<SymbolRef>,
+    pub function: Pointer<LuaClosureFunctionType>,
     pub state: LuaStateReference,
     #[make_type(unsized)]
     pub up_values: UnsizedArray<LuaUpValueReference>,
 }
 make_reference!(LuaClosureReference, LuaClosure, TypeResourceImpl);
+pub struct LuaClosureReferenceSymbol(LuaClosureReference);
+impl TypeDeclaration for LuaClosureReferenceSymbol {
+    type Impl = Self;
+    const LAYOUT: TypeLayout = Pointer::<LuaClosureReference>::LAYOUT;
+    const TYPE: Type = Pointer::<LuaClosureReference>::TYPE;
+}
+impl<'b> MoveIntoObject<'b> for LuaClosureReferenceSymbol {
+    type Carrier = SymbolBuilderRef<'b>;
+
+    fn set(
+        this: Self::Carrier,
+        offset: usize,
+        object_builder: &ObjectBuilder<'b>,
+        token: &mut ghost_cell::GhostToken<'b>,
+    ) {
+        ObjectBuilderInner::set_import(
+            object_builder,
+            token,
+            offset,
+            ObjectBuilderImport::Builder(this.object_builder().clone()),
+            vm_core::RelocationKind::UsizePtrAbsolute,
+            this.index(),
+        );
+    }
+}
 #[derive(TypeDeclaration)]
 #[make_type(make_instruction)]
 pub struct LuaUpValue {
@@ -161,9 +185,11 @@ pub enum LuaValue {
     Function(LuaFunctionReference),
     Closure(LuaClosureReference),
 }
-impl MoveIntoObject for LuaValueImpl {
-    fn set<'l>(self, offset: usize, object_builder: &ObjectBuilder<'l>, token: &mut ghost_cell::GhostToken<'l>) {
-        object_builder.borrow_mut(token).receive_at(offset).write(self.0);
+impl<'l> MoveIntoObject<'l> for LuaValueImpl {
+    type Carrier = Self;
+
+    fn set(this: Self, offset: usize, object_builder: &ObjectBuilder<'l>, token: &mut ghost_cell::GhostToken<'l>) {
+        object_builder.borrow_mut(token).receive_at(offset).write(this.0);
     }
 }
 impl Clone for LuaValueImpl {

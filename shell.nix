@@ -13,9 +13,10 @@ pkgs.mkShell {
     pkg-config
     (fenix.fromToolchainFile {
       file = ./rust-toolchain.toml;
-      sha256 = "sha256-P5uJWx31Xpd9eYFylERRnRVaCtGunhICxmUQU/aMCsY=";
+      #sha256 = "sha256-P5uJWx31Xpd9eYFylERRnRVaCtGunhICxmUQU/aMCsY=";
     })
   ];
   LLVM_SYS_100_PREFIX = "${pkgs.llvmPackages_10.llvm}";
   # LD_PRELOAD="${pkgs.glibc}/lib";
-}
+} 
+

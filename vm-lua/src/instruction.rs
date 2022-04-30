@@ -11,6 +11,31 @@ make_instruction! { ConstFalse->fn()->(o:LuaValue){ entry:{ %o= lua_value::Encod
 make_instruction! { ConstZero->fn()->(o:I64){ entry:{ %o=0; }} }
 make_instruction! { ConstOne->fn()->(o:I64){ entry:{ %o=1; }} }
 make_instruction! { ConstM1->fn()->(o:I64){ entry:{ %o=-1; }} }
+type WriteLuaUpValueRefArray = e::WriteElement<LuaUpValueReference, UnsizedArray<LuaUpValueReference>>;
+make_instruction! { ConstClosure0->fn<const function:LuaClosureReferenceSymbol>(state:LuaStateReference,up_value:LuaUpValueReference)->(v:LuaValue){ entry:{
+    %closure=b::AllocUnsized<LuaClosureReference::TYPE>(b::IntTruncate<12,7>(1));
+    %closure_ptr=b::Deref<LuaClosureReference::TYPE>(%closure);
+    b::SetLength<UnsizedArray::<LuaUpValueReference>::TYPE>(lua_closure::LocateUpValues(%closure_ptr),b::IntTruncate<12,7>(1));
+    lua_closure::WriteState(%closure_ptr,b::Clone<LuaClosureReference::TYPE>(%state));
+    lua_closure::WriteFunction(%closure_ptr,%function);
+    WriteLuaUpValueRefArray(lua_closure::LocateUpValues(%closure_ptr),b::IntTruncate<12,7>(0),b::Clone<LuaUpValueReference::TYPE>(%up_value));
+    %v=lua_value::EncodeClosure(%closure);
+}} }
+type LuaUpValueRefSliceCopy = SliceCopy<LuaUpValueReference>;
+type LuaUpValueRefSubSlice = SubSlice<LuaUpValueReference>;
+type UnsizedLuaUpValueRefArrayToSlice = UnsizedArrayToSlice<LuaUpValueReference>;
+make_instruction! { ConstClosure->fn<const function:LuaClosureReferenceSymbol>(state:LuaStateReference,up_value:LuaUpValueReference,parent_closure:LuaClosureReference)->(v:LuaValue){ entry:{
+    %parent_closure_ptr=b::Deref<LuaClosureReference::TYPE>(%parent_closure_ptr);
+    %parent_len=b::GetLength<UnsizedArray::<LuaUpValueReference>::TYPE>(lua_closure::LocateUpValues(%parent_closure_ptr));
+    %closure=b::AllocUnsized<LuaClosureReference::TYPE>(UsizeAdd(%parent_len,b::IntTruncate<12,7>(1)));
+    %closure_ptr=b::Deref<LuaClosureReference::TYPE>(%closure);
+    b::SetLength<UnsizedArray::<LuaUpValueReference>::TYPE>(lua_closure::LocateUpValues(%closure_ptr),b::IntTruncate<12,7>(1));
+    lua_closure::WriteState(%closure_ptr,b::Clone<LuaClosureReference::TYPE>(%state));
+    lua_closure::WriteFunction(%closure_ptr,%function);
+    WriteLuaUpValueRefArray(lua_closure::LocateUpValues(%closure_ptr),%parent_len,b::Clone<LuaUpValueReference::TYPE>(%up_value));
+    LuaUpValueRefSliceCopy(LuaUpValueRefSubSlice(UnsizedLuaUpValueRefArrayToSlice(lua_closure::LocateUpValues(%closure_ptr)),b::IntTruncate<12,7>(0),%parent_len),UnsizedLuaUpValueRefArrayToSlice(lua_closure::LocateUpValues(%parent_closure_ptr)));
+    %v=lua_value::EncodeClosure(%closure);
+}} }
 make_instruction! { MakeTable->fn<const shape:LuaShapeReference,const fast_len:Usize>(fields:Slice<LuaValue>)->(table_value:LuaValue){
     entry:{
         %table=b::AllocUnsized<LuaTableReference::TYPE>(%fast_len);
@@ -77,13 +102,13 @@ make_instruction! {
         entry:{ if lua_value::IsFunction(%callable) %is_function %not_function; },
         is_function:{
             %function=b::Deref<LuaFunctionReference::TYPE>(lua_value::DecodeFunctionUnchecked(%callable));
-            %function_ptr=lua_function::ReadFunction(%function);
+            %function_ptr=b::Read<LuaFunctionType::TYPE>(lua_function::ReadFunction(%function));
             %o=b::Call<LuaFunctionType::TYPE>(%function_ptr,lua_function::ReadState(%function),%args);
         },
         not_function:{ if lua_value::IsClosure(%callable) %is_closure %not_closure; },
         is_closure:{
             %closure=b::Deref<LuaClosureReference::TYPE>(lua_value::DecodeClosureUnchecked(%callable));
-            %function_ptr=lua_closure::ReadFunction(%closure);
+            %function_ptr=b::Read<LuaClosureFunctionType::TYPE>(lua_closure::ReadFunction(%closure));
             %o=b::Call<LuaClosureFunctionType::TYPE>(%function_ptr,lua_closure::ReadState(%closure),lua_value::DecodeClosureUnchecked(%callable),%args);
         },
         not_closure:{ if lua_value::IsFunction(%callable) %is_object %other; },
@@ -96,7 +121,7 @@ make_instruction! {
             LuaValueSliceCopy(LuaValueSubSlice(%new_slice,b::IntTruncate<12,7>(1),LuaValueSliceLen(%args)),%args);
             LuaValueSliceSet(%new_slice,b::IntTruncate<12,7>(0),%callable);
             %closure=b::Deref<LuaClosureReference::TYPE>(lua_value::DecodeClosureUnchecked(%callable));
-            %function_ptr=lua_closure::ReadFunction(%closure);
+            %function_ptr=b::Read<LuaClosureFunctionType::TYPE>(lua_closure::ReadFunction(%closure));
             %o=b::Call<LuaClosureFunctionType::TYPE>(%function_ptr,lua_closure::ReadState(%closure),lua_value::DecodeClosureUnchecked(%callable),%new_slice);
         },
         other:{
@@ -118,7 +143,7 @@ make_instruction! {
             LuaValueSliceCopy(LuaValueSubSlice(%new_slice,LuaValueSliceLen(%args),LuaValueSliceLen(%va_args)),%va_args);
             LuaValueSliceCopy(LuaValueSubSlice(%new_slice,b::IntTruncate<12,7>(0),LuaValueSliceLen(%args)),%args);
             %function=b::Deref<LuaFunctionReference::TYPE>(lua_value::DecodeFunctionUnchecked(%callable));
-            %function_ptr=lua_function::ReadFunction(%function);
+            %function_ptr=b::Read<LuaFunctionType::TYPE>(lua_function::ReadFunction(%function));
             %o=b::Call<LuaFunctionType::TYPE>(%function_ptr,lua_function::ReadState(%function),%new_slice);
         },
         not_function:{ if lua_value::IsClosure(%callable) %is_closure %not_closure; },
@@ -127,7 +152,7 @@ make_instruction! {
             LuaValueSliceCopy(LuaValueSubSlice(%new_slice,LuaValueSliceLen(%args),LuaValueSliceLen(%args)),%va_args);
             LuaValueSliceCopy(LuaValueSubSlice(%new_slice,b::IntTruncate<12,7>(0),LuaValueSliceLen(%args)),%args);
             %closure=b::Deref<LuaClosureReference::TYPE>(lua_value::DecodeClosureUnchecked(%callable));
-            %function_ptr=lua_closure::ReadFunction(%closure);
+            %function_ptr=b::Read<LuaClosureFunctionType::TYPE>(lua_closure::ReadFunction(%closure));
             %o=b::Call<LuaClosureFunctionType::TYPE>(%function_ptr,lua_closure::ReadState(%closure),lua_value::DecodeClosureUnchecked(%callable),%new_slice);
         },
         not_closure:{ if lua_value::IsFunction(%callable) %is_object %other; },
@@ -141,7 +166,7 @@ make_instruction! {
             LuaValueSliceCopy(LuaValueSubSlice(%new_slice,UsizeAdd(b::IntTruncate<12,7>(1),LuaValueSliceLen(%args)),LuaValueSliceLen(%args)),%va_args);
             LuaValueSliceCopy(LuaValueSubSlice(%new_slice,b::IntTruncate<12,7>(1),LuaValueSliceLen(%args)),%args);
             %closure=b::Deref<LuaClosureReference::TYPE>(lua_value::DecodeClosureUnchecked(%callable));
-            %function_ptr=lua_closure::ReadFunction(%closure);
+            %function_ptr=b::Read<LuaClosureFunctionType::TYPE>(lua_closure::ReadFunction(%closure));
             %o=b::Call<LuaClosureFunctionType::TYPE>(%function_ptr,lua_closure::ReadState(%closure),lua_value::DecodeClosureUnchecked(%callable),%new_slice);
         },
         other:{
@@ -1047,9 +1072,11 @@ pub struct InlineCacheLine {
     pub invalid: NullableOption<BoolReference>,
     pub slot: U32,
 }
-impl MoveIntoObject for InlineCacheLineImpl {
-    fn set<'l>(self, offset: usize, object_builder: &ObjectBuilder<'l>, token: &mut ghost_cell::GhostToken<'l>) {
-        object_builder.borrow_mut(token).receive_at(offset).write(self.0);
+impl<'l> MoveIntoObject<'l> for InlineCacheLineImpl {
+    type Carrier = Self;
+
+    fn set(this: Self, offset: usize, object_builder: &ObjectBuilder<'l>, token: &mut ghost_cell::GhostToken<'l>) {
+        object_builder.borrow_mut(token).receive_at(offset).write(this.0);
     }
 }
 type NullableBoolReferenceDecodeSomeUnchecked = nullable_option::DecodeSomeUnchecked<BoolReference>;
