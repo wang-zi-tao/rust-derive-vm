@@ -8,7 +8,7 @@ use lexical_derive::token as t;
 use runtime::code::FunctionPack;
 use std::{collections::HashMap, rc::Rc};
 use syntax_derive::{lalr1_analyser, lr1_analyser, recursive_predictive_analysis};
-pub fn parse(source: Vec<LuaLexical>) -> Fallible<FunctionPack<LuaInstructionSet>> {
+pub fn parse(source: Vec<LuaLexical>) -> Fallible<Vec<FunctionPack<LuaInstructionSet>>> {
     use super::{builder::*, ir::*};
     GhostToken::new(|token| {
         let mut ctx = new_ctx(token);

@@ -62,11 +62,11 @@ fn test() -> failure::Fallible<()> {
         //     assert_eq!(result, 2);
         // }
         unsafe {
-            let function_address0: *const unsafe extern "C" fn(i64, i64) -> i64 = function_resource.get_address();
+            // let function_address0: *const unsafe extern "C" fn(i64, i64) -> i64 = function_resource.get_address();
             let function_address: unsafe extern "C" fn(i64, i64) -> i64 = std::mem::transmute(
                 ExecutableResourceTrait::<FunctionPack<EvalInstructionSet>>::get_object(&*function_resource).unwrap().lock().unwrap().get_export_ptr(0),
             );
-            assert_eq!(*function_address0, function_address);
+            // assert_eq!(*function_address0, function_address);
             let result = (function_address)(1, 1);
             assert_eq!(result, 2);
         }

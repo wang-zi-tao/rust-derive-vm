@@ -6,10 +6,12 @@ use std::{
     fmt::Debug,
     marker::PhantomData,
     rc::Rc,
-    sync::{Arc, Mutex},
+    sync::{Arc, Mutex, RwLock, Weak},
 };
 
-use enter_point::{FunctionBind, FunctionBinder};
+use arc_swap::{access::Access, ArcSwapAny};
+use either::Either;
+use enter_point::FunctionBinder;
 use failure::{format_err, Fallible};
 use genarator::GlobalBuilder;
 use getset::Getters;
@@ -20,9 +22,10 @@ use runtime::{
     mem::MemoryInstructionSetProvider,
 };
 use util::AsAny;
-use vm_core::{Component, ExecutableResourceTrait, FunctionType, ObjectRef, Resource, ResourceError, ResourceFactory, RuntimeTrait};
-// #[macro_use]
-// extern crate util_derive;
+use vm_core::{
+    AtomicObjectRef, AtomicObjectWeekRef, Component, ExecutableResourceTrait, FunctionType, LockedObjectInner, ObjectRef, ObjectWeekRef, Resource,
+    ResourceError, ResourceFactory, RuntimeTrait,
+};
 
 mod enter_point;
 mod genarator;
@@ -30,7 +33,7 @@ mod genarator;
 #[getset(get = "pub")]
 pub struct RawInterpreter {
     binder: FunctionBinder,
-    _context: Arc<Context>,
+    context: Arc<Context>,
 }
 impl RawInterpreter {
     pub fn new(
@@ -65,7 +68,7 @@ impl RawInterpreter {
             std::mem::forget(execution_engine.clone());
             FunctionBinder::from_jit(execution_engine, 12)?
         };
-        Ok(Self { binder, _context: context })
+        Ok(Self { binder, context })
     }
 }
 #[derive(Getters)]
@@ -103,39 +106,53 @@ impl<S: InstructionSet, M: MemoryInstructionSetProvider> ResourceFactory<Functio
     type ResourceImpl = FunctionResource;
 
     fn define(&self) -> Fallible<Arc<Self::ResourceImpl>> {
-        let ir = ObjectRef::new();
-        let output = ObjectRef::new();
-        let bind = self.raw.binder.bind(ir.clone(), &FunctionType::default(), 0, output)?;
-        Ok(Arc::new(FunctionResource { ir, bind: Mutex::new(bind) }))
+        Ok(Arc::new(Default::default()))
+    }
+
+    fn upload(&self, resource: &Self::ResourceImpl, input: FunctionPack<S>) -> Fallible<()> {
+        Err(ResourceError::Unsupported.into())
     }
 
     fn create(&self, input: FunctionPack<S>) -> Fallible<Arc<Self::ResourceImpl>> {
+        let this = self.define()?;
         let ir = input.byte_code.clone();
-        let bind = self.raw.binder.bind(ir.clone(), &input.function_type, input.register_count, input.output)?;
-        Ok(Arc::new(FunctionResource { ir, bind: Mutex::new(bind) }))
-    }
-
-    fn upload(&self, _resource: &Self::ResourceImpl, _input: FunctionPack<S>) -> Fallible<()> {
-        Err(ResourceError::Unsupported.into())
+        let bind = self
+            .raw
+            .binder
+            .bind(
+                ir.clone(),
+                &input.function_type,
+                input.register_count,
+                input
+                    .output
+                    .or_else(|| {
+                        let inner = this.inner.read().unwrap();
+                        inner.as_ref().map(|inner| inner.bind.clone())
+                    })
+                    .unwrap_or_default(),
+                self.raw.context.clone(),
+            )
+            .unwrap();
+        *this.inner.write().unwrap() = Some(FunctionResourceInner { ir, bind });
+        Ok(this)
     }
 }
 impl<S: InstructionSet, M: MemoryInstructionSetProvider> RuntimeTrait<FunctionPack<S>> for Interpreter<S, M> {}
-#[derive(Getters)]
+#[derive(Getters, Default)]
+#[getset(get = "pub")]
+pub struct FunctionResourceInner {
+    ir: ObjectRef,
+    bind: ObjectRef,
+}
+#[derive(Getters, Default)]
 #[getset(get = "pub")]
 pub struct FunctionResource {
-    ir: ObjectRef,
-    bind: Mutex<FunctionBind>,
+    inner: RwLock<Option<FunctionResourceInner>>,
 }
-
 impl<S> ExecutableResourceTrait<FunctionPack<S>> for FunctionResource {
     fn get_object(&self) -> Fallible<ObjectRef> {
-        Ok(self.bind.lock().unwrap().object().clone())
-    }
-}
-impl FunctionResource {
-    pub unsafe fn get_address<T>(&self) -> *const T {
-        let guard = self.bind.lock().unwrap();
-        guard.get_address()
+        let inner = self.inner.read().unwrap();
+        Ok(inner.as_ref().ok_or_else(|| ResourceError::NotLoaded)?.bind.clone())
     }
 }
 unsafe impl Send for FunctionResource {}
@@ -151,7 +168,8 @@ impl AsAny for FunctionResource {
 }
 impl Debug for FunctionResource {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("FunctionBind").field("ir", &self.ir).field("bind", &self.bind.lock().unwrap().object()).finish()
+        let inner = self.inner.read().unwrap();
+        f.debug_struct("FunctionBind").field("ir", &inner.as_ref().map(|inner| inner.bind.clone())).finish()
     }
 }
 

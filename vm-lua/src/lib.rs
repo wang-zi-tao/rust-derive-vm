@@ -5,6 +5,7 @@
 #![feature(slice_ptr_get)]
 #![feature(new_uninit)]
 #![feature(more_qualified_paths)]
+#![feature(hash_drain_filter)]
 
 use log::debug;
 
@@ -45,12 +46,12 @@ pub mod ir;
 pub mod mem;
 // pub mod shell;
 pub mod syntax;
-// pub mod syntax {
-//     use crate::{ir::LuaInstructionSet, lua_lexical::LuaLexical};
-//     use failure::Fallible;
-//     use runtime::code::FunctionPack;
-//     pub fn parse(_source: Vec<LuaLexical>) -> Fallible<FunctionPack<LuaInstructionSet>> { todo!() }
-// }
+//pub mod syntax {
+//    use crate::{ir::LuaInstructionSet, lua_lexical::LuaLexical};
+//    use failure::Fallible;
+//    use runtime::code::FunctionPack;
+//    pub fn parse(_source: Vec<LuaLexical>) -> Fallible<Vec<FunctionPack<LuaInstructionSet>>> { todo!() }
+//}
 pub fn new_shape(metas: LuaMetaFunctionsReference, is_owned: bool) -> Fallible<LuaShapeReference> {
     unsafe {
         let shape = LuaShapeReference(LuaShapeReference::get()?.alloc()?.cast());
@@ -144,7 +145,7 @@ lazy_static! {
         }
     };
 }
-pub fn pack_code(code: &str) -> Fallible<FunctionPack<LuaInstructionSet>> {
+pub fn pack_code(code: &str) -> Fallible<Vec<FunctionPack<LuaInstructionSet>>> {
     debug!(target:"vm_lua::pack_code","code: {:?}", code);
     let lexical = LuaLexical::parse(code)?;
     debug!(target:"vm_lua::pack_code","lexical: {:?}", lexical);
@@ -153,17 +154,20 @@ pub fn pack_code(code: &str) -> Fallible<FunctionPack<LuaInstructionSet>> {
     Ok(pack)
 }
 pub fn load_code(code: &str) -> Fallible<ObjectRef> {
-    let pack = pack_code(code)?;
-    let resource = LUA_INTERPRETER.create(pack)?;
+    let mut pack = pack_code(code)?;
+    let root_function = pack.pop().unwrap();
+    let resource = LUA_INTERPRETER.create(root_function)?;
+    for closure in pack {
+        LUA_INTERPRETER.create(closure)?;
+    }
     ExecutableResourceTrait::<FunctionPack<LuaInstructionSet>>::get_object(&*resource)
 }
 pub fn run_code(lua_state: LuaStateReference, code: &str) -> Fallible<()> {
-    let pack = pack_code(code)?;
-    let resource = LUA_INTERPRETER.create(pack)?;
+    let resource = load_code(code)?;
     unsafe {
-        let function: *const LuaFunctionRustType = resource.get_address();
+        let function: LuaFunctionRustType = std::mem::transmute(resource.lock().unwrap().get_export_ptr(0));
         let args = &[];
-        (*function)(lua_state, args);
+        function(lua_state, args);
     }
     Ok(())
 }
@@ -199,8 +203,6 @@ mod tests {
                         debug!(target : "test_scripts", "loading:{}, index:{}\n", &name, &index);
                         let code = std::fs::read_to_string(entry.path())?;
                         let state = crate::new_state()?;
-                        let pack = crate::pack_code(&*code)?;
-                        debug!(target : "test_scripts", "packed:{:?}\n", &pack);
                         crate::run_code(state, &*code)?;
                         debug!(target : "test_scripts", "finish:{}\n", &name);
                     }

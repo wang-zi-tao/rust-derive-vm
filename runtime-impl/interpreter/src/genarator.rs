@@ -188,9 +188,9 @@ impl<'ctx> Operand<'ctx> {
         }
     }
 
-    pub(crate) fn get_ptr(&self, _builder: &Builder<'ctx>, _registers: PointerValue<'ctx>, _value_type: BasicTypeEnum<'ctx>) -> Result<PointerValue<'ctx>> {
+    pub(crate) fn get_ptr(&self, builder: &Builder<'ctx>, _registers: PointerValue<'ctx>, value_type: BasicTypeEnum<'ctx>) -> Result<PointerValue<'ctx>> {
         match self {
-            Operand::Register(ptr, _ty) => Ok(*ptr),
+            Operand::Register(ptr, _ty) => Ok(builder.build_address_space_cast(*ptr, value_type.ptr_type(AddressSpace::Generic), "ptr")),
             _ => Err(ExceptRegister()),
         }
     }

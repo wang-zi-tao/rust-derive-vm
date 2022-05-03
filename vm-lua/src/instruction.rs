@@ -16,7 +16,7 @@ make_instruction! { ConstClosure0->fn<const function:LuaClosureReferenceSymbol>(
     %closure=b::AllocUnsized<LuaClosureReference::TYPE>(b::IntTruncate<12,7>(1));
     %closure_ptr=b::Deref<LuaClosureReference::TYPE>(%closure);
     b::SetLength<UnsizedArray::<LuaUpValueReference>::TYPE>(lua_closure::LocateUpValues(%closure_ptr),b::IntTruncate<12,7>(1));
-    lua_closure::WriteState(%closure_ptr,b::Clone<LuaClosureReference::TYPE>(%state));
+    lua_closure::WriteState(%closure_ptr,b::Clone<LuaStateReference::TYPE>(%state));
     lua_closure::WriteFunction(%closure_ptr,%function);
     WriteLuaUpValueRefArray(lua_closure::LocateUpValues(%closure_ptr),b::IntTruncate<12,7>(0),b::Clone<LuaUpValueReference::TYPE>(%up_value));
     %v=lua_value::EncodeClosure(%closure);
@@ -25,12 +25,12 @@ type LuaUpValueRefSliceCopy = SliceCopy<LuaUpValueReference>;
 type LuaUpValueRefSubSlice = SubSlice<LuaUpValueReference>;
 type UnsizedLuaUpValueRefArrayToSlice = UnsizedArrayToSlice<LuaUpValueReference>;
 make_instruction! { ConstClosure->fn<const function:LuaClosureReferenceSymbol>(state:LuaStateReference,up_value:LuaUpValueReference,parent_closure:LuaClosureReference)->(v:LuaValue){ entry:{
-    %parent_closure_ptr=b::Deref<LuaClosureReference::TYPE>(%parent_closure_ptr);
+    %parent_closure_ptr=b::Deref<LuaClosureReference::TYPE>(%parent_closure);
     %parent_len=b::GetLength<UnsizedArray::<LuaUpValueReference>::TYPE>(lua_closure::LocateUpValues(%parent_closure_ptr));
     %closure=b::AllocUnsized<LuaClosureReference::TYPE>(UsizeAdd(%parent_len,b::IntTruncate<12,7>(1)));
     %closure_ptr=b::Deref<LuaClosureReference::TYPE>(%closure);
     b::SetLength<UnsizedArray::<LuaUpValueReference>::TYPE>(lua_closure::LocateUpValues(%closure_ptr),b::IntTruncate<12,7>(1));
-    lua_closure::WriteState(%closure_ptr,b::Clone<LuaClosureReference::TYPE>(%state));
+    lua_closure::WriteState(%closure_ptr,b::Clone<LuaStateReference::TYPE>(%state));
     lua_closure::WriteFunction(%closure_ptr,%function);
     WriteLuaUpValueRefArray(lua_closure::LocateUpValues(%closure_ptr),%parent_len,b::Clone<LuaUpValueReference::TYPE>(%up_value));
     LuaUpValueRefSliceCopy(LuaUpValueRefSubSlice(UnsizedLuaUpValueRefArrayToSlice(lua_closure::LocateUpValues(%closure_ptr)),b::IntTruncate<12,7>(0),%parent_len),UnsizedLuaUpValueRefArrayToSlice(lua_closure::LocateUpValues(%parent_closure_ptr)));
@@ -274,13 +274,15 @@ make_instruction! {SetUpVariable->fn<const tire:Usize,const index:Usize>(closure
     Write<LuaValue::TYPE>(LocateUpVariable<%tire,%index>(%closure),%value);
 }}}
 type NullableLuaValuePointerEncodeSome = nullable_pointer::EncodeSome<LuaValue>;
-make_instruction! {SetUpValue->fn(up_value:Pointer<LuaUpValue>,index:Usize,value:LuaValue){entry:{
-    %owned=b::LocateElement<UnsizedArray::<LuaValue>::TYPE>(NullableLuaValueArrayDecodeSome(lua_up_value::ReadOwned(%up_value)),%index);
+make_instruction! {SetUpValue->fn<const index:Usize>(up_value:LuaUpValueReference,value:LuaValue){entry:{
+    %up_value_ptr=b::Deref<LuaUpValueReference::TYPE>(%up_value);
+    %owned=b::LocateElement<UnsizedArray::<LuaValue>::TYPE>(NullableLuaValueArrayDecodeSome(lua_up_value::ReadOwned(%up_value_ptr)),%index);
     Write<LuaValue::TYPE>(%owned,%value);
-    WriteUpRefs(lua_up_value::LocatePointers(%up_value),%index,NullableLuaValuePointerEncodeSome(%owned));
+    WriteUpRefs(lua_up_value::LocatePointers(%up_value_ptr),%index,NullableLuaValuePointerEncodeSome(%owned));
 }}}
-make_instruction! {SetUpRef->fn(up_value:Pointer<LuaUpValue>,index:Usize,value:LuaValue){entry:{
-    %o=WriteUpRefs(lua_up_value::LocatePointers(NullableUpValeRefDecodeSome(b::LocateElement<UnsizedArray::<LuaValue>::TYPE>(lua_closure::LocateUpValues(%closure),%tire))),%index,b::GetPointer<LuaValue::TYPE>(%value));
+make_instruction! {SetUpRef->fn<const index:Usize>(up_value:LuaUpValueReference,value:LuaValue){entry:{
+    %up_value_ptr=b::Deref<LuaUpValueReference::TYPE>(%up_value);
+    WriteUpRefs(lua_up_value::LocatePointers(%up_value_ptr),%index,NullableLuaValuePointerEncodeSome(b::GetPointer<LuaValue::TYPE>(%value)));
 }}}
 type NullableLuaValueArrayEncodeNone = nullable_pointer::EncodeNone<UnsizedArray<LuaValue>>;
 type NullableLuaValueEncodeNone = nullable_pointer::EncodeNone<LuaValue>;
@@ -289,14 +291,14 @@ make_instruction! {
         entry:{
             %upvalue=b::AllocUnsized<LuaUpValueReference::TYPE>(%len);
             %upvalue_deref=b::Deref<LuaUpValueReference::TYPE>(%upvalue);
-            lua_up_value::WriteOwned(%upvalue_deref,NullableLuaValueArrayEncodeNone());
+            lua_up_value::WriteOwned(%upvalue_deref,NullableLuaValueArrayEncodeNone(b::UninitedStruct<Unit::TYPE>()));
             %i=b::IntTruncate<12,7>(0);
             if UsizeLarge(%len,%i) %loop %end;
         },
         loop:{
             phi %i:Usize={%entry=>%i,%loop=>%i1};
             %i1=UsizeAdd(%i,b::IntTruncate<12,7>(1));
-            Write<NullablePointer::<LuaValue>::TYPE>(b::LocateElement<UnsizedArray::<LuaValue>::TYPE>(lua_up_value::LocatePointers(%upvalue_deref),%i),NullableLuaValueEncodeNone());
+            Write<NullablePointer::<LuaValue>::TYPE>(b::LocateElement<UnsizedArray::<NullablePointer<LuaValue>>::TYPE>(lua_up_value::LocatePointers(%upvalue_deref),%i),NullableLuaValueEncodeNone(b::UninitedStruct<Unit::TYPE>()));
             if UsizeLarge(%len,%i1) %loop %end;
         },
         end:{

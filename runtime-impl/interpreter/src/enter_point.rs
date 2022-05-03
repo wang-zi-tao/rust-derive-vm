@@ -1,4 +1,9 @@
-use std::{convert::TryInto, mem::MaybeUninit, ptr::null};
+use std::{
+    convert::TryInto,
+    mem::MaybeUninit,
+    ptr::null,
+    sync::{Arc, Weak},
+};
 
 use failure::Fallible;
 use getset::{CopyGetters, Getters};
@@ -13,12 +18,16 @@ use vm_core::{
     FunctionType, IntKind, ObjectBuilder, ObjectBuilderImport, ObjectBuilderInner, ObjectRef, RelocationKind, SymbolBuilder, Tuple, _ghost_cell::GhostToken,
 };
 
+use crate::FunctionResource;
+
 #[repr(C)]
 pub struct FunctionMetadata {
     register_count: u16,
     code: *const u8,
     args_count: usize,
     bind: unsafe extern "C" fn(),
+    context: Arc<Context>,
+    closure: Closure<'static>,
 }
 fn get_callback<'ctx>(
     context: &'ctx Context,
@@ -104,17 +113,6 @@ fn get_callback<'ctx>(
     builder.build_return(None);
     return Ok(function.as_global_value().as_pointer_value());
 }
-#[derive(Getters)]
-#[getset(get = "pub")]
-pub struct FunctionBind {
-    object: ObjectRef,
-    closure: Closure<'static>,
-}
-impl FunctionBind {
-    pub unsafe fn get_address<T>(&self) -> *const T {
-        self.closure.instantiate_code_ptr() as *const T
-    }
-}
 #[derive(Getters, CopyGetters)]
 pub struct FunctionBinder {
     #[getset(get = "pub")]
@@ -149,7 +147,14 @@ unsafe extern "C" fn panic() {
     panic!();
 }
 impl FunctionBinder {
-    pub(crate) fn bind<'ctx>(&self, code: ObjectRef, function_type: &FunctionType, register_count: u16, output: ObjectRef) -> Fallible<FunctionBind> {
+    pub(crate) fn bind<'ctx>(
+        &self,
+        code: ObjectRef,
+        function_type: &FunctionType,
+        register_count: u16,
+        output: ObjectRef,
+        context: Arc<Context>,
+    ) -> Fallible<ObjectRef> {
         let mut args_type = Vec::with_capacity(function_type.args.len());
         for arg_type in &function_type.args {
             args_type.push(convert_type(arg_type));
@@ -162,14 +167,13 @@ impl FunctionBinder {
         let ret_type = if let Some(ret) = &function_type.return_type { convert_type(ret) } else { Type::void() };
         let cif = Cif::new(args_type, ret_type);
         let callback = self.enter_points.get(function_type.args().len()).copied().unwrap_or(self.enter_point_mul_arg);
-        // unsafe extern "C" fn callback(cif: &ffi_cif, result: &mut i64, args: *const *const c_void, userdata: &FunctionMetadata) {
-        //     println!("libffi callback");
-        // }
-        let (object, metadata) = GhostToken::new(|mut token| {
+        GhostToken::new(|mut token| {
             let object_builder = ObjectBuilder::default();
             let metadata_memory: &mut MaybeUninit<FunctionMetadata> = object_builder.borrow_mut(&mut token).receive();
-            metadata_memory.write(FunctionMetadata { register_count, code: null(), args_count: function_type.args.len(), bind: panic });
             let metadata_ptr_mut = unsafe { metadata_memory.assume_init_mut() as *mut FunctionMetadata };
+            let closure = unsafe { Closure::new(cif, callback, metadata_ptr_mut.as_ref().unwrap()) };
+            let entry = unsafe { std::mem::transmute(*closure.code_ptr()) };
+            metadata_memory.write(FunctionMetadata { register_count, code: null(), args_count: function_type.args.len(), bind: entry, context, closure });
             let offset = unsafe {
                 let metadata = metadata_memory.assume_init_ref();
                 &metadata.code as *const *const u8 as usize - metadata as *const FunctionMetadata as usize
@@ -181,13 +185,8 @@ impl FunctionBinder {
             object_builder.borrow_mut(&mut token).set_pin(true);
             ObjectBuilderInner::set_import(&object_builder, &mut token, offset, ObjectBuilderImport::ObjectRef(code), RelocationKind::UsizePtrAbsolute, 0);
             object_builder.borrow_mut(&mut token).add_symbol(SymbolBuilder::default().offset(bind_offset).symbol_kind(vm_core::SymbolKind::Value).build()?);
-            Fallible::Ok((object_builder.take(&mut token).build(), metadata_ptr_mut))
-        })?;
-        let closure = unsafe { Closure::new(cif, callback, metadata.as_ref().unwrap()) };
-        unsafe {
-            metadata.as_mut().unwrap().bind = *closure.code_ptr();
-        }
-        Ok(FunctionBind { closure, object: object? })
+            Fallible::Ok(object_builder.take(&mut token).build_into(output)?)
+        })
     }
 
     pub(crate) fn generate<'ctx>(context: &'ctx Context, module: &Module<'ctx>, instructions: PointerValue<'ctx>, arg_count: usize) -> Fallible<()> {

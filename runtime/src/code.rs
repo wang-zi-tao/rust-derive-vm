@@ -30,7 +30,7 @@ pub struct FunctionPack<S> {
     #[getset(get_copy = "pub")]
     pub register_count: u16,
     #[builder(default)]
-    pub output: ObjectRef,
+    pub output: Option<ObjectRef>,
 }
 
 impl<S> Debug for FunctionPack<S> {
@@ -108,7 +108,7 @@ impl<'l, S> FunctionBuilder<'l, S> {
         buffer = ObjectBuilder::merge(token, buffer, remote_constants);
         buffer.borrow_mut(token).add_symbol(SymbolBuilder::default().offset(0).build()?);
         let object = buffer.take(token).build()?;
-        Ok(FunctionPack { _ph: PhantomData, byte_code: object, function_type, register_count, output })
+        Ok(FunctionPack { _ph: PhantomData, byte_code: object, function_type, register_count, output: Some(output) })
     }
 }
 #[derive(Getters)]
