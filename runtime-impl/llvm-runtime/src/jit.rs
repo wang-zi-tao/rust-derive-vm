@@ -1,12 +1,9 @@
 use std::{
     alloc::{Layout, LayoutError},
-    arch::global_asm,
-    borrow::Borrow,
     cell::RefCell,
     collections::{HashMap, HashSet},
     convert::TryInto,
     fmt::Debug,
-    hash::Hash,
     marker::PhantomData,
     mem::{align_of, size_of},
     num::TryFromIntError,
@@ -21,10 +18,10 @@ use getset::Getters;
 use inkwell::{
     basic_block::BasicBlock,
     context::Context,
-    execution_engine::{ExecutionEngine, JitFunction},
+    execution_engine::{ExecutionEngine},
     module::Module,
     support::LLVMString,
-    values::{BasicValue, FunctionValue, GlobalValue, PointerValue},
+    values::{FunctionValue, PointerValue},
     AddressSpace,
 };
 use runtime::{
@@ -32,12 +29,11 @@ use runtime::{
     instructions::{InstructionSet, InstructionType, MemoryInstructionSet},
     mem::MemoryInstructionSetProvider,
 };
-use smallvec::SmallVec;
-use util::{AsAny, FromNode};
+
+use util::{FromNode};
 use util_derive::AsAny;
 use vm_core::{
-    AtomicObjectRef, Component, ExecutableResourceTrait, FunctionType, ObjectBuilder, ObjectRef, Resource, ResourceError, ResourceFactory, RuntimeTrait,
-    StructLayoutBuilder, SymbolBuilder, SymbolRef, Type, TypeLayout, TypeLayoutBuilder, _ghost_cell::GhostToken,
+    Component, ExecutableResourceTrait, FunctionType, ObjectBuilder, ObjectRef, Resource, ResourceError, ResourceFactory, RuntimeTrait, SymbolBuilder, Type, _ghost_cell::GhostToken,
 };
 
 #[derive(Debug, Fail)]
@@ -83,7 +79,7 @@ impl From<LLVMString> for JITCompileError {
 }
 type Result<T> = std::result::Result<T, JITCompileError>;
 
-use crate::genarator::{function_type_to_llvm_type, vm_type_to_llvm_type, Constant, GlobalBuilder, InstructionError, LLVMFunctionBuilder};
+use crate::genarator::{function_type_to_llvm_type, vm_type_to_llvm_type, GlobalBuilder, InstructionError, LLVMFunctionBuilder};
 pub enum JITConstantKind {
     Const(Type, usize),
     Mut(Type, usize),
@@ -118,7 +114,7 @@ impl Drop for RawJITCompiler {
 }
 impl RawJITCompiler {
     pub fn new((instructions, instruction_count): (&[(usize, InstructionType)], usize), memory_instruction_set: &MemoryInstructionSet) -> Result<Self> {
-        let mut context = Box::leak(Box::new(Context::create()));
+        let context = Box::leak(Box::new(Context::create()));
         let mut context_non_null = NonNull::from(context);
         let context: &'static mut Context = unsafe { context_non_null.as_mut() };
         let module = Arc::new(context.create_module("jit"));
@@ -158,7 +154,7 @@ impl RawJITCompiler {
             params_layout = new_layout;
             let reg = offset / size_of::<usize>();
             let reg_pointer = entry_builder.build_alloca(llvm_type, &format!("reg_param_{}", param_index));
-            let param = function.get_nth_param(param_index.try_into()?).ok_or_else(|| ParamIndexOutOfBound(param_index))?;
+            let param = function.get_nth_param(param_index.try_into()?).ok_or(ParamIndexOutOfBound(param_index))?;
             entry_builder.build_store(reg_pointer, param);
             regs.insert((reg.try_into()?, param_type.clone()), reg_pointer);
         }
@@ -195,7 +191,7 @@ impl RawJITCompiler {
                     8 => unsafe { ir_buffer.get::<u64>(ip).try_into()? },
                     _ => unreachable!(),
                 };
-                let jit_instruction = self.instructions.get(opcode).ok_or_else(|| OpcodeOutOfBound(opcode))?;
+                let jit_instruction = self.instructions.get(opcode).ok_or(OpcodeOutOfBound(opcode))?;
                 let constant_start = (ip + opcode_size + (jit_instruction.align - 1)) & !(jit_instruction.align - 1);
                 let instruction_function = jit_instruction.function;
                 let params = instruction_function.get_type().get_param_types();
@@ -231,12 +227,12 @@ impl RawJITCompiler {
                     let reg = unsafe {
                         ir_buffer
                             .try_get(constant_start + jit_instruction.constant_size + 2 * index)
-                            .ok_or_else(|| OffsetOutOfBound(constant_start + jit_instruction.constant_size + 2 * index))?
+                            .ok_or(OffsetOutOfBound(constant_start + jit_instruction.constant_size + 2 * index))?
                     };
                     let reg_pointer = match regs.entry((reg, operand_type.clone())) {
                         std::collections::hash_map::Entry::Occupied(o) => *o.get(),
                         std::collections::hash_map::Entry::Vacant(v) => {
-                            *v.insert(entry_builder.build_alloca(vm_type_to_llvm_type(operand_type, &context)?, &format!("reg_{}_", reg)))
+                            *v.insert(entry_builder.build_alloca(vm_type_to_llvm_type(operand_type, context)?, &format!("reg_{}_", reg)))
                         }
                     };
                     args.push(reg_pointer.into());
@@ -341,7 +337,7 @@ impl<S: InstructionSet, M: MemoryInstructionSetProvider> ResourceFactory<Functio
         Ok(Arc::new(Default::default()))
     }
 
-    fn upload(&self, resource: &Self::ResourceImpl, input: FunctionPack<S>) -> Fallible<()> {
+    fn upload(&self, _resource: &Self::ResourceImpl, _input: FunctionPack<S>) -> Fallible<()> {
         Err(ResourceError::Unsupported.into())
     }
 

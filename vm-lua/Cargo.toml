@@ -12,7 +12,7 @@ lexical-derive={path="../lexical-derive"}
 runtime={path="../runtime"}
 runtime-derive={path="../runtime-derive"}
 runtime-extra={path="../runtime-extra"}
-interpreter={path="../runtime-impl/interpreter"}
+llvm-runtime={path="../runtime-impl/llvm-runtime"}
 syntax={path="../syntax"}
 syntax-derive={path="../syntax-derive"}
 memory-mmmu={path="../memory-impl/memory-mmmu"}

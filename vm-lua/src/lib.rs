@@ -12,9 +12,9 @@ use log::debug;
 use std::{cell::UnsafeCell, collections::HashMap};
 
 use failure::Fallible;
-use interpreter::Interpreter;
 use lazy_static::lazy_static;
 use lexical::Lexical;
+use llvm_runtime::Interpreter;
 use lua_lexical::LuaLexical;
 use mem::*;
 use memory_mmmu::MemoryMMMU;
