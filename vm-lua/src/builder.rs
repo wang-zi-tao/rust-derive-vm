@@ -1693,20 +1693,47 @@ impl<'l> LuaContext<'l> {
         self.branch(&false_block_end, &post_block_begin)?;
         Ok(())
     }
-    // [t!(for),Name(n),t!(=),expr(e),t!(,),expr(e1),block_split(p),block_split(p1),t!(do),block(b),t!(end)]=>ctx.for_(n,e,e1,p1,b);
-    pub fn for_(
+    pub fn for_head(
         &mut self,
-        _var: String,
+        var: String,
         start: LuaExprRef<'l>,
         end: LuaExprRef<'l>,
         (init_block_end, predicate_block_begin): (LuaBlockRef<'l>, LuaBlockRef<'l>),
         (predict_block_end, loop_block_begin): (LuaBlockRef<'l>, LuaBlockRef<'l>),
+    ) -> Fallible<(
+        LuaExprRef<'l>,
+        LuaExprRef<'l>,
+        (LuaBlockRef<'l>, LuaBlockRef<'l>),
+        (LuaBlockRef<'l>, LuaBlockRef<'l>),
+        LuaExprRef<'l>,
+    )> {
+        let reg = self.alloc_register()?;
+        let expr = LuaExpr::new_value(reg.clone());
+        self.add_local(var, Default::default(), expr.clone())?;
+        Ok((
+            start,
+            end,
+            (init_block_end, predicate_block_begin),
+            (predict_block_end, loop_block_begin),
+            expr,
+        ))
+    }
+    // [t!(for),Name(n),t!(=),expr(e),t!(,),expr(e1),block_split(p),block_split(p1),t!(do),block(b),t!(end)]=>ctx.for_(n,e,e1,p1,b);
+    pub fn for_(
+        &mut self,
+        (start, end, (init_block_end, predicate_block_begin), (predicate_block_end, loop_block_begin), state): (
+            LuaExprRef<'l>,
+            LuaExprRef<'l>,
+            (LuaBlockRef<'l>, LuaBlockRef<'l>),
+            (LuaBlockRef<'l>, LuaBlockRef<'l>),
+            LuaExprRef<'l>,
+        ),
         (loop_block_end, post_block_begin): (LuaBlockRef<'l>, LuaBlockRef<'l>),
     ) -> Fallible<()> {
         trace!("for_");
         let start = self.to_value(start)?;
         let end = self.to_value(end)?;
-        let state_reg = self.alloc_register()?;
+        let state_reg = state.value_reg();
         let predicate_block_begin = &predicate_block_begin.borrow(self.token()).builder().clone();
         let loop_block_begin = &loop_block_begin.borrow(self.token()).builder().clone();
         let loop_block_end = &loop_block_end.borrow(self.token()).builder().clone();
@@ -1731,22 +1758,52 @@ impl<'l> LuaContext<'l> {
         ForLoopIncrease::emit(loop_block_end, &mut self.token, predicate_block_begin, &state_reg)?;
         Ok(())
     }
-    // [t!(for),Name(n),t!(=),expr(e),t!(,),expr(e1),t!(,),expr(e2),block_split(p),block_split(p1),t!(do),block(b),t!(end)]=>ctx.for_step(n,e,e1,e2,p1,b);
-    pub fn for_step(
+    pub fn for_step_head(
         &mut self,
         var: String,
         start: LuaExprRef<'l>,
         end: LuaExprRef<'l>,
         step: LuaExprRef<'l>,
         (init_block_end, predicate_block_begin): (LuaBlockRef<'l>, LuaBlockRef<'l>),
-        (predicate_block_end, loop_block_begin): (LuaBlockRef<'l>, LuaBlockRef<'l>),
+        (predict_block_end, loop_block_begin): (LuaBlockRef<'l>, LuaBlockRef<'l>),
+    ) -> Fallible<(
+        LuaExprRef<'l>,
+        LuaExprRef<'l>,
+        LuaExprRef<'l>,
+        (LuaBlockRef<'l>, LuaBlockRef<'l>),
+        (LuaBlockRef<'l>, LuaBlockRef<'l>),
+        LuaExprRef<'l>,
+    )> {
+        let reg = self.alloc_register()?;
+        let expr = LuaExpr::new_value(reg.clone());
+        self.add_local(var, Default::default(), expr.clone())?;
+        Ok((
+            start,
+            end,
+            step,
+            (init_block_end, predicate_block_begin),
+            (predict_block_end, loop_block_begin),
+            expr,
+        ))
+    }
+    // [t!(for),Name(n),t!(=),expr(e),t!(,),expr(e1),t!(,),expr(e2),block_split(p),block_split(p1),t!(do),block(b),t!(end)]=>ctx.for_step(n,e,e1,e2,p1,b);
+    pub fn for_step(
+        &mut self,
+        (start, end, step, (init_block_end, predicate_block_begin), (predicate_block_end, loop_block_begin), state): (
+            LuaExprRef<'l>,
+            LuaExprRef<'l>,
+            LuaExprRef<'l>,
+            (LuaBlockRef<'l>, LuaBlockRef<'l>),
+            (LuaBlockRef<'l>, LuaBlockRef<'l>),
+            LuaExprRef<'l>,
+        ),
         (loop_block_end, post_block_begin): (LuaBlockRef<'l>, LuaBlockRef<'l>),
     ) -> Fallible<()> {
         trace!("for_step");
         let start = self.to_value(start)?;
         let end = self.to_value(end)?;
         let step = self.to_value(step)?;
-        let state_reg = self.alloc_register()?;
+        let state_reg = state.value_reg();
         let predicate_block_begin = &predicate_block_begin.borrow(self.token()).builder().clone();
         let loop_block_begin = &loop_block_begin.borrow(self.token()).builder().clone();
         let loop_block_end = &loop_block_end.borrow(self.token()).builder().clone();
@@ -1771,7 +1828,7 @@ impl<'l> LuaContext<'l> {
             &state_reg,
         )?;
         ForLoopStepIncrease::emit(
-            predicate_block_begin,
+            loop_block_end,
             &mut self.token,
             predicate_block_begin,
             &state_reg,
@@ -1779,20 +1836,47 @@ impl<'l> LuaContext<'l> {
         )?;
         Ok(())
     }
+    pub fn for_in_head(
+        &mut self,
+        vars: Vec<String>,
+        exprs: LuaExprList<'l>,
+        (init_block_end, predicate_block_begin): (LuaBlockRef<'l>, LuaBlockRef<'l>),
+        (predict_block_end, loop_block_begin): (LuaBlockRef<'l>, LuaBlockRef<'l>),
+    ) -> Fallible<(
+        LuaExprList<'l>,
+        (LuaBlockRef<'l>, LuaBlockRef<'l>),
+        (LuaBlockRef<'l>, LuaBlockRef<'l>),
+        Vec<LuaExprRef<'l>>,
+    )> {
+        let mut new_vars = Vec::new();
+        for var in vars {
+            let reg = self.alloc_register()?;
+            let expr = LuaExpr::new_value(reg.clone());
+            self.add_local(var, Default::default(), expr.clone())?;
+            new_vars.push(expr);
+        }
+        Ok((
+            exprs,
+            (init_block_end, predicate_block_begin),
+            (predict_block_end, loop_block_begin),
+            new_vars,
+        ))
+    }
     // [t!(for),name_list(n),t!(in),expr_list(e),block_split(p),block_split(p1),t!(do),block(b),t!(end)]=>ctx.for_in(n,e,p,b);
     pub fn for_in(
         &mut self,
-        _var: Vec<String>,
-        exprs: LuaExprList<'l>,
-        (init_block_end, predicate_block_begin): (LuaBlockRef<'l>, LuaBlockRef<'l>),
-        (predicate_block_end, loop_block_begin): (LuaBlockRef<'l>, LuaBlockRef<'l>),
+        (exprs, (init_block_end, predicate_block_begin), (predicate_block_end, loop_block_begin), new_vars): (
+            LuaExprList<'l>,
+            (LuaBlockRef<'l>, LuaBlockRef<'l>),
+            (LuaBlockRef<'l>, LuaBlockRef<'l>),
+            Vec<LuaExprRef<'l>>,
+        ),
         (loop_block_end, post_block_begin): (LuaBlockRef<'l>, LuaBlockRef<'l>),
     ) -> Fallible<()> {
         self.branch(&loop_block_end, &predicate_block_begin)?;
         self.branch(&init_block_end, &predicate_block_begin)?;
         let predicate_block_begin = &predicate_block_begin.borrow(self.token()).builder().clone();
-        let _loop_block_end = &loop_block_end.borrow(self.token()).builder().clone();
-        let _init_block_end = &init_block_end.borrow(self.token()).builder().clone();
+        let loop_block_begin = &loop_block_begin.borrow(self.token()).builder().clone();
         let post_block_begin = &post_block_begin.borrow(self.token()).builder().clone();
         let state_less_iter = self.expr_list_to_vec(exprs, 3)?;
         let iter = self.to_value(state_less_iter[0].clone())?;
@@ -1801,13 +1885,12 @@ impl<'l> LuaContext<'l> {
         ForInLoopJump::emit(
             predicate_block_begin,
             &mut self.token,
-            predicate_block_begin,
+            loop_block_begin,
             post_block_begin,
             iter.value_reg(),
             iterable.value_reg(),
             state.value_reg(),
         )?;
-        todo!();
         Ok(())
     }
     // [t!(function),function_boby(f)]=>ctx.function(f);

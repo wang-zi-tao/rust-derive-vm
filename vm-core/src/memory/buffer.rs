@@ -1,4 +1,5 @@
 use std::{
+    borrow::Borrow,
     fmt::Debug,
     mem::{align_of, size_of},
     ptr::NonNull,
@@ -17,6 +18,14 @@ impl UnsafeBuffer {
 
     pub fn with_capacity(capacity: usize) -> Self {
         unsafe { Self::from_vec(Vec::with_capacity(capacity)) }
+    }
+
+    pub fn try_get_ptr<T: Copy>(&self, offset: usize) -> Option<NonNull<T>> {
+        if self.len() >= offset + size_of::<T>() {
+            unsafe { Some(NonNull::new_unchecked(self.data.as_ptr().cast::<u8>().add(offset).cast())) }
+        } else {
+            None
+        }
     }
 
     pub fn get_ptr<T: Copy>(&self, offset: usize) -> NonNull<T> {
@@ -101,9 +110,29 @@ impl UnsafeBuffer {
     pub unsafe fn set<T>(&mut self, offset: usize, value: T) {
         self.get_ptr::<u8>(offset).cast::<T>().as_ptr().write(value)
     }
+
+    pub unsafe fn try_set<T>(&mut self, offset: usize, value: T) -> bool {
+        self.try_get_ptr::<u8>(offset).map(|p| p.cast::<T>().as_ptr().write(value)).is_some()
+    }
+
+    pub unsafe fn get<T>(&mut self, offset: usize) -> T {
+        self.get_ptr::<u8>(offset).cast::<T>().as_ptr().read()
+    }
+
+    pub unsafe fn try_get<T>(&mut self, offset: usize) -> Option<T> {
+        self.try_get_ptr::<u8>(offset).map(|p| p.cast::<T>().as_ptr().read())
+    }
 }
 impl Debug for UnsafeBuffer {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         unsafe { f.write_fmt(format_args!("UnsafeBuffer(size:{},capacity:{},{:X?})", self.len(), self.capacity(), self.borrow())) }
+    }
+}
+impl Clone for UnsafeBuffer {
+    fn clone(&self) -> Self {
+        unsafe {
+            let vec = self.borrow().to_vec();
+            Self::from_vec(vec)
+        }
     }
 }

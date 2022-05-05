@@ -29,6 +29,7 @@ use vm_core::{
 
 mod enter_point;
 mod genarator;
+mod jit;
 #[derive(Getters)]
 #[getset(get = "pub")]
 pub struct RawInterpreter {
@@ -46,19 +47,20 @@ impl RawInterpreter {
         let binder = {
             let context_ref = &*context;
             let module = Arc::new(context_ref.create_module(name));
-            let global_builder = Rc::new(RefCell::new(GlobalBuilder { symbol_maps: Default::default(), module, context: context_ref }));
-            let instruction_functions = genarator::LLVMFunctionBuilder::generate_instruction_set(
+            let global_builder = Rc::new(RefCell::new(GlobalBuilder {
+                symbol_maps: Default::default(),
+                module,
+                context: context_ref,
+                memory_instruction_set: memory_instruction_set.clone(),
+            }));
+            let instruction_functions = genarator::LLVMFunctionBuilder::generate_instruction_set_interpreter(
                 instructions,
                 instruction_count,
                 context_ref,
                 global_builder.clone(),
-                memory_instruction_set,
                 name,
             )?;
             let GlobalBuilder { symbol_maps, module, .. } = Rc::try_unwrap(global_builder).unwrap().into_inner();
-            // if let Some(i) = module.get_function("instruction_MakeSlice") {
-            //     i.print_to_stderr()
-            // }
             FunctionBinder::generate(context_ref, &module, instruction_functions.as_pointer_value(), 12)?;
             module.verify().map_err(|e| format_err!("llvm verify error: {}", e.to_string()))?;
             let execution_engine = module.create_jit_execution_engine(inkwell::OptimizationLevel::Aggressive).map_err(|e| format_err!("llvm error: {}", e))?;
@@ -103,7 +105,7 @@ impl<S: InstructionSet + 'static, M: MemoryInstructionSetProvider + 'static> AsA
 impl<S: InstructionSet, M: MemoryInstructionSetProvider> Interpreter<S, M> {}
 impl<S: InstructionSet, M: MemoryInstructionSetProvider> vm_core::Module for Interpreter<S, M> {}
 impl<S: InstructionSet, M: MemoryInstructionSetProvider> ResourceFactory<FunctionPack<S>> for Interpreter<S, M> {
-    type ResourceImpl = FunctionResource;
+    type ResourceImpl = InterpreterFunction;
 
     fn define(&self) -> Fallible<Arc<Self::ResourceImpl>> {
         Ok(Arc::new(Default::default()))
@@ -133,31 +135,31 @@ impl<S: InstructionSet, M: MemoryInstructionSetProvider> ResourceFactory<Functio
                 self.raw.context.clone(),
             )
             .unwrap();
-        *this.inner.write().unwrap() = Some(FunctionResourceInner { ir, bind });
+        *this.inner.write().unwrap() = Some(InterpreterFunctionInner { ir, bind });
         Ok(this)
     }
 }
 impl<S: InstructionSet, M: MemoryInstructionSetProvider> RuntimeTrait<FunctionPack<S>> for Interpreter<S, M> {}
 #[derive(Getters, Default)]
 #[getset(get = "pub")]
-pub struct FunctionResourceInner {
+pub struct InterpreterFunctionInner {
     ir: ObjectRef,
     bind: ObjectRef,
 }
 #[derive(Getters, Default)]
 #[getset(get = "pub")]
-pub struct FunctionResource {
-    inner: RwLock<Option<FunctionResourceInner>>,
+pub struct InterpreterFunction {
+    inner: RwLock<Option<InterpreterFunctionInner>>,
 }
-impl<S> ExecutableResourceTrait<FunctionPack<S>> for FunctionResource {
+impl<S> ExecutableResourceTrait<FunctionPack<S>> for InterpreterFunction {
     fn get_object(&self) -> Fallible<ObjectRef> {
         let inner = self.inner.read().unwrap();
         Ok(inner.as_ref().ok_or_else(|| ResourceError::NotLoaded)?.bind.clone())
     }
 }
-unsafe impl Send for FunctionResource {}
-unsafe impl Sync for FunctionResource {}
-impl AsAny for FunctionResource {
+unsafe impl Send for InterpreterFunction {}
+unsafe impl Sync for InterpreterFunction {}
+impl AsAny for InterpreterFunction {
     fn as_any(&self) -> &(dyn Any) {
         self
     }
@@ -166,16 +168,16 @@ impl AsAny for FunctionResource {
         self
     }
 }
-impl Debug for FunctionResource {
+impl Debug for InterpreterFunction {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let inner = self.inner.read().unwrap();
         f.debug_struct("FunctionBind").field("ir", &inner.as_ref().map(|inner| inner.bind.clone())).finish()
     }
 }
 
-impl Component for FunctionResource {}
-impl<M> Resource<FunctionPack<M>> for FunctionResource {
+impl Component for InterpreterFunction {}
+impl<M> Resource<FunctionPack<M>> for InterpreterFunction {
     fn get_state(&self) -> vm_core::ResourceState {
-        todo!()
+        vm_core::ResourceState::Ready
     }
 }

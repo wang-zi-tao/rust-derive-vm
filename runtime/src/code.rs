@@ -43,6 +43,7 @@ impl<S> Debug for FunctionPack<S> {
     }
 }
 unsafe impl<S> Sync for FunctionPack<S> {}
+unsafe impl<S> Send for FunctionPack<S> {}
 pub struct Function {
     pub blocks_metadata: CowSlice<'static, (Range<u32>, SegmentKind)>,
     pub blocks: ObjectRef,

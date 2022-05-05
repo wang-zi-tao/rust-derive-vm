@@ -306,7 +306,7 @@ impl Default for AtomicObjectWeekRef {
         Self(ArcSwapWeak::from(Weak::default()))
     }
 }
-#[derive(Default)]
+#[derive(Default, Debug)]
 pub struct AtomicObjectRef(pub ArcSwap<Mutex<Object>>);
 
 impl std::ops::Deref for AtomicObjectRef {

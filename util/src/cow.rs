@@ -111,6 +111,15 @@ pub enum CowSlice<'l, T> {
     Ref(&'l [T]),
 }
 
+impl<'l, T: Hash> Hash for CowSlice<'l, T> {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        match self {
+            CowSlice::Owned(o) => o.hash(state),
+            CowSlice::Ref(r) => r.hash(state),
+        }
+    }
+}
+
 impl<'l, T> PartialOrd for CowSlice<'l, T>
 where
     T: PartialOrd,

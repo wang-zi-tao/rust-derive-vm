@@ -11,6 +11,7 @@ use std::{
     cell::UnsafeCell,
     convert::TryInto,
     fmt::Debug,
+    hash::Hash,
     marker::PhantomData,
     mem::{align_of, size_of},
     ops::{Deref, DerefMut},
@@ -46,7 +47,28 @@ impl PartialEq for dyn OOPTrait {
 }
 impl Eq for dyn OOPTrait {}
 pub trait SyncOOPTrait: OOPTrait + Sync + Send {}
-pub type OOPRef = Arc<dyn OOPTrait>;
+#[derive(Debug, Eq)]
+pub struct OOPRef(Arc<dyn OOPTrait>);
+
+impl PartialEq for OOPRef {
+    fn eq(&self, other: &Self) -> bool {
+        &self.0 == &other.0
+    }
+}
+
+impl Hash for OOPRef {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.0.as_ptr().hash(state);
+    }
+}
+
+impl std::ops::Deref for OOPRef {
+    type Target = Arc<dyn OOPTrait>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
 pub struct RawOOP {
     pub pointer: *const (),
     pub matedata: *const (),
@@ -62,7 +84,7 @@ impl PartialEq for dyn ReferenceKind {
     }
 }
 impl Eq for dyn ReferenceKind {}
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum IntKind {
     Bool = 0,
     I8 = 1,
@@ -116,7 +138,7 @@ impl IntKind {
         }
     }
 }
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum FloatKind {
     F32 = 32,
     F64 = 64,
@@ -142,7 +164,7 @@ impl FloatKind {
 pub enum Type {
     Float(FloatKind),
     Int(IntKind),
-    MetaData(CowArc<'static, [(OOPRef, CowArc<'static, dyn TypeResource>)]>),
+    MetaData(CowArc<'static, [(OOPRef, MaybeDefinedResource<dyn TypeResource>)]>),
     Const(CowArc<'static, [u8]>, CowArc<'static, Type>),
     Tuple(Tuple),
     Enum(CowArc<'static, Enum>),
@@ -153,6 +175,26 @@ pub enum Type {
     Embed(MaybeDefinedResource<dyn TypeResource>),
     Native(Layout),
     Function(CowArc<'static, FunctionType>),
+}
+
+impl Hash for Type {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        match self {
+            Type::Float(i) => i.hash(state),
+            Type::Int(i) => i.hash(state),
+            Type::MetaData(i) => i.hash(state),
+            Type::Const(i, i1) => (i, i1).hash(state),
+            Type::Tuple(i) => i.hash(state),
+            Type::Enum(i) => i.hash(state),
+            Type::Union(i) => i.hash(state),
+            Type::Pointer(i) => i.hash(state),
+            Type::Array(i, i1) => (i, i1).hash(state),
+            Type::Reference(i) => i.hash(state),
+            Type::Embed(i) => i.hash(state),
+            Type::Native(i) => (i.size(), i.align()).hash(state),
+            Type::Function(i) => i.hash(state),
+        }
+    }
 }
 
 impl Debug for Type {
@@ -182,7 +224,7 @@ impl Debug for Type {
         }
     }
 }
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum EnumTagLayout {
     UndefinedValue { end: usize, start: usize },
     UnusedBytes { offset: usize, size: u8 },
@@ -242,7 +284,7 @@ pub struct MetaData {
     pub value: Value,
     pub ty: Option<CowArc<'static, dyn TypeResource>>,
 }
-#[derive(Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq, Hash)]
 pub enum Tuple {
     Normal(CowArc<'static, [Type]>),
     Compose(CowArc<'static, [(Type, SmallElementLayout)]>),
@@ -269,7 +311,7 @@ impl Debug for Tuple {
         Ok(())
     }
 }
-#[derive(Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq, Hash)]
 pub struct Enum {
     pub variants: CowArc<'static, [Type]>,
     pub tag_layout: EnumTagLayout,
@@ -307,7 +349,7 @@ impl Enum {
         }
     }
 }
-#[derive(Debug, Clone, Copy, Builder, CopyGetters, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Builder, CopyGetters, PartialEq, Eq, Hash)]
 pub struct SmallElementLayout {
     #[getset(get_copy = "pub")]
     pub mask: usize,
@@ -676,7 +718,7 @@ impl PartialEq for dyn TypeResource {
     }
 }
 impl Eq for dyn TypeResource {}
-#[derive(Default, Clone, Debug, Builder, Getters, CopyGetters, PartialEq, Eq)]
+#[derive(Default, Clone, Debug, Builder, Getters, CopyGetters, PartialEq, Eq, Hash)]
 pub struct FunctionType {
     #[getset(get = "pub")]
     #[builder(default)]

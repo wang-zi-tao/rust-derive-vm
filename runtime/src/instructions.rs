@@ -155,6 +155,7 @@ pub enum BootstrapInstruction {
     SetState,
     CallState,
 }
+#[derive(Debug, Clone)]
 pub struct MemoryInstructionSet {
     pub clone: InstructionType,
     pub drop: InstructionType,

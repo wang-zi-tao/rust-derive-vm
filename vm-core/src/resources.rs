@@ -4,6 +4,7 @@ use failure::{format_err, Error, Fail, Fallible};
 use getset::Getters;
 use std::{
     fmt::Debug,
+    hash::Hash,
     sync::{Arc, Weak},
 };
 use tokio::sync::{watch, OnceCell};
@@ -116,6 +117,15 @@ pub struct AsyncResourceFrontEnd<T, S, A, M> {
 pub enum MaybeDefinedResource<T: ?Sized + 'static> {
     Defined(CowArc<'static, T>),
     Factory(fn() -> Fallible<CowArc<'static, T>>),
+}
+
+impl<T: ?Sized + 'static> Hash for MaybeDefinedResource<T> {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        match self {
+            MaybeDefinedResource::Defined(d) => d.as_ptr().hash(state),
+            MaybeDefinedResource::Factory(f) => f.hash(state),
+        }
+    }
 }
 
 impl<T: ?Sized> Eq for MaybeDefinedResource<T> {}

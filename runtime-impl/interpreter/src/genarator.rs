@@ -1,6 +1,6 @@
 use std::{
     alloc::{Layout, LayoutError},
-    borrow::Cow,
+    borrow::{Cow, },
     cell::RefCell,
     collections::{HashMap, HashSet},
     convert::TryFrom,
@@ -8,7 +8,7 @@ use std::{
     mem::{align_of, size_of},
     num::TryFromIntError,
     rc::Rc,
-    sync::Arc,
+    sync::Arc, usize,
 };
 
 use failure::{format_err, Error, Fail, Fallible};
@@ -21,9 +21,9 @@ use inkwell::{
     values::{
         AnyValue, BasicValue, BasicValueEnum, CallableValue, FloatValue, FunctionValue, GlobalValue, InstructionOpcode, IntValue, PhiValue, PointerValue,
     },
-    AddressSpace, AtomicOrdering, FloatPredicate, IntPredicate,
+    AddressSpace, AtomicOrdering, FloatPredicate, IntPredicate, passes::{PassManagerBuilder, PassManager},
 };
-use vm_core::{FloatKind, IntKind, MaybeDefinedResource, Tuple, Type, TypeResource};
+use vm_core::{FloatKind, IntKind, MaybeDefinedResource, Tuple, Type, TypeResource, TypeLayout};
 use std::convert::TryInto;
 use util::{CowArc, CowSlice};
 
@@ -157,6 +157,8 @@ impl From<LayoutError> for InstructionError {
 type Result<T> = std::result::Result<T, InstructionError>;
 
 use InstructionError::*;
+
+use crate::jit::{JITConstantKind, JITInstruction};
 #[derive(Clone, Debug)]
 pub(crate) enum Operand<'ctx> {
     Register(PointerValue<'ctx>, Type),
@@ -251,6 +253,7 @@ impl<'ctx> Operand<'ctx> {
 pub(crate) enum TargetBlock<'ctx> {
     Offset(PointerValue<'ctx>),
     Block { from: LLVMBasicBlockBuilderRef<'ctx>, block: LLVMBasicBlockBuilderRef<'ctx>,  },
+    IR(IntValue<'ctx>)
 }
 #[derive(Clone)]
 pub(crate) enum Constant<'ctx> {
@@ -471,7 +474,7 @@ pub(crate) fn vm_type_to_llvm_type<'ctx>(ty: &Type, context: &'ctx Context) -> R
         }
     })
 }
-pub(crate) fn function_type_to_llvm_type<'ctx>(function: &vm_core::FunctionType, context: &'ctx Context) -> Result<FunctionType<'ctx>> {
+pub(crate) fn function_type_to_llvm_type<'ctx,'t>(function: &vm_core::FunctionType, context: &'ctx Context) -> Result<FunctionType<'t>> where 'ctx:'t{
     let mut args = Vec::new();
     for arg in function.args() {
         args.push(vm_type_to_llvm_type(arg, context)?.into());
@@ -616,18 +619,18 @@ pub(crate) struct GlobalBuilder<'ctx> {
     pub(crate) symbol_maps: HashMap<GlobalValue<'ctx>, *const u8>,
     pub(crate) module: Arc<Module<'ctx>>,
     pub(crate) context: &'ctx Context,
+    pub(crate) memory_instruction_set:  MemoryInstructionSet,
 }
 pub(crate) struct LLVMFunctionBuilder<'ctx> {
     global: Rc<RefCell<GlobalBuilder<'ctx>>>,
     context: &'ctx Context,
     builder: Builder<'ctx>,
-    ip: PointerValue<'ctx>,
-    deploy_table: PointerValue<'ctx>,
+    ip: Option<PointerValue<'ctx>>,
+    deploy_table: Option<PointerValue<'ctx>>,
     function: FunctionValue<'ctx>,
     instruction_type: InstructionType,
     state_stack: Vec<StateInstructionBuilder<'ctx>>,
-    registers: PointerValue<'ctx>,
-    memory_instruction_set: &'ctx MemoryInstructionSet,
+    registers: Option<PointerValue<'ctx>>,
     termined: bool,
     returned: bool,
     ip_phi: PhiValue<'ctx>,
@@ -960,7 +963,8 @@ impl<'ctx, 'm> LLVMFunctionBuilder<'ctx> {
                     match value_type {
                         Type::Reference(ref r) => {
                             let mut new_operands = convert_memory_instruciton_operands(*bootstrap, &self.global, builder, r, operands)?;
-                            self.generate_instruction_core(self.memory_instruction_set.get(*bootstrap).unwrap(), &[], &mut new_operands)?;
+                            let instruction=self.global.borrow().memory_instruction_set.get(*bootstrap).unwrap().clone();
+                            self.generate_instruction_core(&instruction, &[], &mut new_operands)?;
                             write_back_memory_instruciton_operands(*bootstrap, &self.global, &self.builder, r, operands, new_operands)?;
                         }
                         _ => return Err(ExceptReferenceType(value_type.clone())),
@@ -974,7 +978,7 @@ impl<'ctx, 'm> LLVMFunctionBuilder<'ctx> {
                         Type::Enum(enum_ty) => match enum_ty.tag_layout {
                             vm_core::EnumTagLayout::UndefinedValue { end, start } => {
                                 let raw_tag = builder.build_int_sub(enum_value.into_int_value(),usize_type.const_int(start as u64, false), "raw_enum");
-                                let is_zero = builder.build_int_compare(IntPredicate::UGE, raw_tag, context.i64_type().const_int((end - start) as u64, false), "is_zero");
+                                let is_zero = builder.build_int_compare(IntPredicate::UGE, raw_tag, usize_type.const_int((end - start) as u64, false), "is_zero");
                                 let tag = builder.build_select(is_zero, usize_type.const_int(0, false), builder.build_int_add(raw_tag,usize_type.const_int(1, false),"non_zero_tag"), "tag");
                                 store_operand!(1, tag);
                             }
@@ -1290,7 +1294,7 @@ impl<'ctx, 'm> LLVMFunctionBuilder<'ctx> {
                     match &ty {
                         Type::MetaData(m) => {
                             let (_, metadata_type) = m.get(index).ok_or_else(|| MetadataIndexOutOfRange(ty.clone(), index))?;
-                            let metadata_llvm_type = vm_type_to_llvm_type(metadata_type.get_type()?, context)?;
+                            let metadata_llvm_type = vm_type_to_llvm_type(&metadata_type.try_map(|r|r.get_type().cloned())?, context)?;
                             let ptr_int = builder.build_ptr_to_int(ptr.into_pointer_value(), usize_type, "ptr_int");
                             let shift_ptr = builder.build_left_shift(ptr_int, usize_type.const_int(6, false), "shift_ptr");
                             let metadata_ptr_ptr_int = builder.build_int_add(shift_ptr, usize_type.const_int(index as u64, false), "metadata_ptr_ptr_int");
@@ -1344,7 +1348,8 @@ impl<'ctx, 'm> LLVMFunctionBuilder<'ctx> {
                 }
                 // fn<const ty:TYPE>(in:Pointer<Type>)
                 Free => {
-                    self.generate_instruction_core(&self.memory_instruction_set.free, constants, operands)?;
+                    let instruction=self.global.borrow().memory_instruction_set.free.clone();
+                    self.generate_instruction_core(&instruction, constants, operands)?;
                 }
                 // fn<const ty:TYPE>(dst:Pointer<Type>,src:Pointer<Type>,size:Usize)
                 MemoryCopy => {
@@ -1537,7 +1542,7 @@ impl<'ctx, 'm> LLVMFunctionBuilder<'ctx> {
                 }
                 GetPointer => {
                     let (_, llvm_type) = get_type!();
-                    let ptr = operands.get(0).ok_or(ArgumentIndexOutOfRange(0))?.get_ptr(&self.builder, self.registers, llvm_type)?;
+                    let ptr = operands.get(0).ok_or(ArgumentIndexOutOfRange(0))?.get_ptr(&self.builder, self.registers.unwrap(), llvm_type)?;
                     store_operand!(1, ptr.into());
                 }
             }
@@ -1796,7 +1801,6 @@ impl<'ctx, 'm> LLVMFunctionBuilder<'ctx> {
                                     registers: self.registers,
                                     termined: false,
                                     state_stack: self.state_stack.clone(),
-                                    memory_instruction_set: self.memory_instruction_set,
                                     ip_phi: self.ip_phi,
                                     exit: self.exit,
                                     returned: self.returned,
@@ -2037,12 +2041,11 @@ impl<'ctx, 'm> LLVMFunctionBuilder<'ctx> {
             let (_index, sub_instruction) = &compress_instruction.instructions[opcode.get_zero_extended_constant().unwrap() as usize];
             return self.generate_instruction_core(sub_instruction, &constant[1..], operand);
         } else if !self.termined {
-            let table = Self::generate_instruction_set(
+            let table = Self::generate_instruction_set_interpreter(
                 &*compress_instruction.instructions,
                 compress_instruction.instruction_count,
                 context,
                 self.global.clone(),
-                self.memory_instruction_set,
                 "compress_instruction",
             )?;
             let sub_instructions_function_address = unsafe {
@@ -2050,7 +2053,7 @@ impl<'ctx, 'm> LLVMFunctionBuilder<'ctx> {
             };
             let sub_instruction: CallableValue<'ctx> =
                 builder.build_load(sub_instructions_function_address, "next_instruction_address").into_pointer_value().try_into().unwrap();
-            let call = builder.build_call(sub_instruction, &[self.function.get_nth_param(0).unwrap().into(), self.ip.into()], "call_next_instruction");
+            let call = builder.build_call(sub_instruction, &[self.function.get_nth_param(0).unwrap().into(), self.ip.unwrap().into()], "call_next_instruction");
             call.set_tail_call(true);
             builder.build_return(Some(&call.try_as_basic_value().unwrap_left()));
             self.termined = true;
@@ -2104,17 +2107,16 @@ impl<'ctx, 'm> LLVMFunctionBuilder<'ctx> {
         Ok(())
     }
 
-    pub(crate) fn generate_instruction_set(
+    pub(crate) fn generate_instruction_set_interpreter(
         instructions: &[(usize, InstructionType)],
         instruction_count: usize,
         context: &'ctx Context,
         global: Rc<RefCell<GlobalBuilder<'ctx>>>,
-        memory_instruction_set: &'ctx MemoryInstructionSet,
         name: &str,
     ) -> Result<GlobalValue<'ctx>> {
-        let instruction_count = instruction_count.try_into()?;
+        let instruction_count = instruction_count;
         let deploy_table_entry_type = get_instruction_function_type(context).ptr_type(AddressSpace::Generic);
-        let deploy_table_type = deploy_table_entry_type.array_type(instruction_count);
+        let deploy_table_type = deploy_table_entry_type.array_type(instruction_count.try_into()?);
         let instruction_function_pointers = global.borrow().module.add_global(deploy_table_type, Some(AddressSpace::Generic), name);
         let mut deploy_table_value: Vec<PointerValue<'ctx>> = Vec::with_capacity(instruction_count as usize);
         for (index, (_opcode, instruction)) in instructions.iter().enumerate() {
@@ -2124,12 +2126,12 @@ impl<'ctx, 'm> LLVMFunctionBuilder<'ctx> {
                     let start = index;
                     for (index, state) in stateful_instruction.statuses.iter().enumerate() {
                         let state_instruction: InstructionType = InstructionType::Complex(CowArc::new(state.instruction.clone()));
-                        let instruction_function = Self::generate_instruction(
+                        let instruction_function = Self::generate_instruction_interpreter(
                             &state_instruction,
+                            instruction_count,
                             global.clone(),
                             instruction_function_pointers,
                             Some((&*stateful_instruction, start)),
-                            memory_instruction_set,
                             &format!("instruction_{}", instruction.get_name()),
                         )
                         .map_err(|e| ErrorWhileGenerateInstruction(start + index, Box::new(e)))?;
@@ -2137,12 +2139,12 @@ impl<'ctx, 'm> LLVMFunctionBuilder<'ctx> {
                     }
                 }
                 _ => {
-                    let instruction_function = Self::generate_instruction(
+                    let instruction_function = Self::generate_instruction_interpreter(
                         &*instruction,
+                        instruction_count,
                         global.clone(),
                         instruction_function_pointers,
                         None,
-                        memory_instruction_set,
                         &format!("instruction_{}", instruction.get_name()),
                     )
                     .map_err(|e| ErrorWhileGenerateInstruction(index, Box::new(e)))?;
@@ -2160,12 +2162,12 @@ impl<'ctx, 'm> LLVMFunctionBuilder<'ctx> {
         Ok(instruction_function_pointers)
     }
 
-    fn generate_instruction(
+    fn generate_instruction_interpreter(
         instruction_type: &InstructionType,
+        instruction_count: usize,
         global: Rc<RefCell<GlobalBuilder<'ctx>>>,
         deploy_table: GlobalValue<'ctx>,
         state_instruction_type: Option<(&StatefulInstruction, usize)>,
-        memory_instruction_set: &'ctx MemoryInstructionSet,
         name: &str,
     ) -> Result<FunctionValue<'ctx>> {
         let (context, module) = {
@@ -2179,6 +2181,7 @@ impl<'ctx, 'm> LLVMFunctionBuilder<'ctx> {
         let basic_block = context.append_basic_block(function, "entry");
         let builder = context.create_builder();
         builder.position_at_end(basic_block);
+        let usize_type=context.custom_width_int_type(usize::BITS);
         let mut constant_offset_list = Vec::new();
         let mut constant_layout = Layout::new::<()>();
         for constant_metadata in &*metadata.generics {
@@ -2197,7 +2200,7 @@ impl<'ctx, 'm> LLVMFunctionBuilder<'ctx> {
         let align = constant_layout.align();
         let registers = function.get_nth_param(0).unwrap().into_pointer_value();
         let ip = function.get_nth_param(1).unwrap().into_pointer_value();
-        let ip_int = builder.build_ptr_to_int(ip, context.i64_type(), "ip_int");
+        let ip_int = builder.build_ptr_to_int(ip, usize_type, "ip_int");
         let constant_address = builder.build_int_add(
             builder.build_or(ip_int, context.i64_type().const_int(align as u64 - 1, false), "align_m1"),
             context.i64_type().const_int(1, false),
@@ -2206,7 +2209,7 @@ impl<'ctx, 'm> LLVMFunctionBuilder<'ctx> {
         let mut constant_list = Vec::new();
         for (_index, (constant_metadata, offset)) in metadata.generics.iter().zip(&constant_offset_list).enumerate() {
             
-            let constant_ptr = builder.build_int_add(constant_address, context.i64_type().const_int(*offset as u64, true), "constant_ptr");
+            let constant_ptr = builder.build_int_add(constant_address, usize_type.const_int(*offset as u64, true), "constant_ptr");
             match &constant_metadata.kind {
                 GenericsMetadataKind::Constant { value_type, writable } => {
                     if *writable {
@@ -2239,7 +2242,7 @@ impl<'ctx, 'm> LLVMFunctionBuilder<'ctx> {
         }
         let mut operand_list = Vec::new();
         for (index, (operand_metadata, offset)) in metadata.operands.iter().zip(&operand_offset_list).enumerate() {
-            let operand_index_address = builder.build_int_add(constant_address, context.i64_type().const_int(*offset as u64, true), "remote_constant");
+            let operand_index_address = builder.build_int_add(constant_address, usize_type.const_int(*offset as u64, true), "remote_constant");
 
             let operand_index_ptr = builder.build_int_to_ptr(operand_index_address, context.i16_type().ptr_type(AddressSpace::Shared), "constant_ptr_cast");
             let operand_index = builder.build_load(operand_index_ptr, &format!("operand_{}", index)).into_int_value();
@@ -2256,15 +2259,14 @@ impl<'ctx, 'm> LLVMFunctionBuilder<'ctx> {
         let mut this = LLVMFunctionBuilder {
             context: &*context,
             builder,
-            ip,
-            deploy_table: deploy_table_ptr,
+            ip:Some(ip),
+            deploy_table: Some(deploy_table_ptr),
             global,
             function,
             instruction_type: instruction_type.clone(),
-            registers,
+            registers:Some(registers),
             termined: false,
             state_stack: Default::default(),
-            memory_instruction_set,
             exit,
             returned: false,
             ip_phi,
@@ -2280,25 +2282,34 @@ impl<'ctx, 'm> LLVMFunctionBuilder<'ctx> {
             }
         }
         if !this.termined {
-            ip_phi.add_incoming(&[(&this.ip, this.builder.get_insert_block().unwrap())]);
+            ip_phi.add_incoming(&[(&this.ip.unwrap(), this.builder.get_insert_block().unwrap())]);
             this.builder.build_unconditional_branch(exit);
             this.builder.clear_insertion_position();
-        } else {
-        }
+        } 
         if !this.returned {
             let builder = exit_block_builder;
-            let next_ip = builder.build_int_add(constant_address, context.i64_type().const_int(constant_layout.size() as u64, false), "next_ip");
+            let next_ip = builder.build_int_add(constant_address, usize_type.const_int(constant_layout.size() as u64, false), "next_ip");
             let next_ip=if matches!(instruction_type,InstructionType::Bootstrap(BootstrapInstruction::MakeSlice)){
                 builder.build_int_add(next_ip, builder.build_int_mul(builder.build_int_add(constant_list[0].get_value(&builder)?.into_int_value(), context.custom_width_int_type(usize::BITS).const_int(2, false), "operand_count"),context.custom_width_int_type(usize::BITS).const_int(2, false) , "operand_len"), "next_ip")
             }else{next_ip};
-            let next_instruction_opcode_ptr = builder.build_int_to_ptr(next_ip, context.i8_type().ptr_type(AddressSpace::Global), "next_ip_cast");
+            let opcode_size = match instruction_count {
+                0..=0xff => 1,
+                0x100..=0xffff => 2,
+                0x10000..=0xffffffff => 4,
+                _ => 8,
+            };
+            let opcode_type=context.custom_width_int_type(8*opcode_size);
+            let next_ip=if opcode_size!=1{
+                builder.build_and(builder.build_int_add(next_ip, usize_type.const_int(opcode_size as u64-1, false), "next_ip_pre_align"), usize_type.const_int(!(opcode_size as u64-1), false), "next_ip")
+            }else{next_ip};
+            let next_instruction_opcode_ptr = builder.build_int_to_ptr(next_ip, opcode_type.ptr_type(AddressSpace::Global), "next_ip_cast");
             let next_instruction_opcode = builder.build_load(next_instruction_opcode_ptr, "next_instruction_opcode").into_int_value();
             let next_instruction_opcode_usize =
                 builder.build_int_z_extend(next_instruction_opcode, context.custom_width_int_type(usize::BITS), "next_instruction_opcode_usize");
             let next_instruction_jump_table_address = unsafe {
                 builder.build_in_bounds_gep(
-                    this.deploy_table,
-                    &[context.i64_type().const_int(0, true), next_instruction_opcode_usize],
+                    this.deploy_table.unwrap(),
+                    &[usize_type.const_int(0, true), next_instruction_opcode_usize],
                     "next_instruction_jump_table_address",
                 )
             };
@@ -2312,6 +2323,214 @@ impl<'ctx, 'm> LLVMFunctionBuilder<'ctx> {
             let _result=exit.remove_from_function();
         }
         Ok(function)
+    }
+    fn generate_instruction_jit(
+        instruction_type: &InstructionType,
+        global: Rc<RefCell<GlobalBuilder<'ctx>>>,
+        state_instruction_type: Option<&StatefulInstruction>,
+        name: &str,
+    ) -> Result<JITInstruction>where 'ctx:'static {
+        let (context, module) = {
+            let global_ref = global.borrow();
+            (global_ref.context, &global_ref.module.clone())
+        };
+        let metadata = &*get_instruction_metadata(instruction_type, &[], None, true)?;
+        let mut constant_offset_list = Vec::new();
+        let mut constant_layout = Layout::new::<()>();
+        let usize_type=context.custom_width_int_type(usize::BITS);
+        let mut args=vec![usize_type.ptr_type(AddressSpace::Local).into()];
+        let mut jit_constants = Vec::new();
+        for constant_metadata in &*metadata.generics {
+            let layout = &mut constant_layout;
+            let value_type = get_constant_type(constant_metadata, context)?;
+            let (new_layout, offset) = layout.extend(value_type.get_layout()?.into())?;
+            *layout = new_layout;
+            constant_offset_list.push(offset);
+            let llvm_type=match &constant_metadata.kind{
+                GenericsMetadataKind::Constant { value_type,writable: true } => vm_type_to_llvm_type(value_type, context)?.ptr_type(AddressSpace::Global),
+                GenericsMetadataKind::Constant { value_type,writable: false } => vm_type_to_llvm_type(value_type, context)?.ptr_type(AddressSpace::Const),
+                GenericsMetadataKind::BasicBlock => usize_type.ptr_type(AddressSpace::Local),
+                GenericsMetadataKind::Type => todo!(),
+                GenericsMetadataKind::State => todo!(),
+            };
+            args.push(llvm_type.into());
+            let jit_constant=match &constant_metadata.kind{
+                GenericsMetadataKind::Constant { value_type, writable:true } => JITConstantKind::Mut(value_type.clone(), offset),
+                GenericsMetadataKind::Constant { value_type, writable:false } => JITConstantKind::Const(value_type.clone(), offset),
+                GenericsMetadataKind::BasicBlock => JITConstantKind::BasicBlock(offset),
+                GenericsMetadataKind::Type => todo!(),
+                GenericsMetadataKind::State => todo!(),
+            };
+            jit_constants.push(jit_constant);
+        }
+        let mut operand_offset_list = Vec::new();
+        let mut operand_types=Vec::new();
+        let constant_size=constant_layout.size();
+        for operand_metadata in &*metadata.operands {
+            let (new_layout, offset) = constant_layout.extend(Layout::new::<u16>())?;
+            constant_layout = new_layout;
+            operand_offset_list.push(offset);
+            let llvm_type=vm_type_to_llvm_type(&operand_metadata.value_type, context)?;
+            operand_types.push(operand_metadata.value_type.clone());
+            args.push(llvm_type.ptr_type(AddressSpace::Local).into());
+        }
+        if let Some(stateful) = state_instruction_type {
+            let state_type_bytes=match stateful.statuses.len() {
+                0=>unreachable!(),
+                1..=0xff=>1,
+                0x100..=0xffff=>2,
+                0x10000..=0xffffffff=>4,
+                _ =>8,
+            };
+            let layout = &mut constant_layout;
+            let (new_layout, _offset) = layout.extend(Layout::from_size_align(state_type_bytes, state_type_bytes)?)?;
+            *layout = new_layout;
+            args.push(context.custom_width_int_type(8*state_type_bytes as u32).ptr_type(AddressSpace::Local).into());
+        }
+        let function_type=usize_type.fn_type(
+            &*args,
+            false,
+        );
+        let function=module.add_function(name, function_type, None);
+        function.set_call_conventions(8); // fastcc
+        let basic_block = context.append_basic_block(function, "entry");
+        let builder = context.create_builder();
+        builder.position_at_end(basic_block);
+        let mut constant_list = Vec::new();
+        for (index,jit_constant) in jit_constants.iter().enumerate(){
+            let arg_idnex=index+1;
+            match jit_constant{
+                JITConstantKind::Const(value_type, _offset) => {
+                        let constant_ptr=function.get_nth_param(arg_idnex as u32).unwrap().into_pointer_value();
+                        let constant =
+                            Constant::Value(builder.build_load(constant_ptr, "constnat_"), value_type.clone());
+                        constant_list.push(constant);
+                    },
+                JITConstantKind::Mut(value_type,_offset) => {
+                        let constant_ptr=function.get_nth_param(arg_idnex as u32).unwrap().into_pointer_value();
+                        let constant = Constant::Ptr(constant_ptr, value_type.clone());
+                        constant_list.push(constant);
+                    },
+                JITConstantKind::BasicBlock(_offset) => {
+                    let offset=function.get_nth_param(arg_idnex as u32).unwrap().into_int_value();
+                    let constant = Constant::BasicBlock(TargetBlock::IR(offset));
+                    constant_list.push(constant);
+                },
+                JITConstantKind::State => todo!(),
+            }
+        }
+        if let Some(stateful) = state_instruction_type {
+            let state_type=match stateful.statuses.len() {
+                0=>unreachable!(),
+                1..=0xff=>Type::Int(IntKind::U8),
+                0x100..=0xffff=>Type::Int(IntKind::U16),
+                0x10000..=0xffffffff=>Type::Int(IntKind::U32),
+                _ =>Type::Int(IntKind::U64),
+            };
+            constant_list.push(Constant::Ptr(function.get_nth_param(constant_list.len()as u32).unwrap().into_pointer_value(), state_type))
+        }
+        let mut operand_list = Vec::new();
+        for (index, (operand_metadata, _offset)) in metadata.operands.iter().zip(&operand_offset_list).enumerate() {
+            let arg_index=args.len()+index;
+            let operand_arg=function.get_nth_param(arg_index as u32).ok_or_else(||GenericIndexOutOfRange(index))?;
+            operand_list.push(Operand::Register(operand_arg.into_pointer_value(), operand_metadata.value_type.clone()));
+        }
+        let exit = context.append_basic_block(function, "exit");
+        let exit_block_builder = context.create_builder();
+        exit_block_builder.position_at_end(exit);
+        let ip_phi = exit_block_builder.build_phi(context.i8_type().ptr_type(AddressSpace::Global), "ip");
+        let mut this = LLVMFunctionBuilder {
+            context: &*context,
+            builder,
+            ip:None,
+            deploy_table: None,
+            global,
+            function,
+            instruction_type: instruction_type.clone(),
+            registers:None,
+            termined: false,
+            state_stack: Default::default(),
+            exit,
+            returned: false,
+            ip_phi,
+        };
+        if let Some(stateful) = state_instruction_type {
+            this.state_stack.push(StateInstructionBuilder { instruction: stateful.clone(), state_kind: StateKind::StateConstant(constant_list.last().unwrap().clone()) });
+        }
+        this.generate_instruction_core(instruction_type, &constant_list, &mut operand_list)?;
+        for operand in operand_list {
+            if !(matches!(operand, Operand::Register(_, _))) {
+                dbg!(operand);
+                Err(format_err!("output is not register"))?;
+            }
+        }
+        if !this.termined {
+            ip_phi.add_incoming(&[(&usize_type.const_zero(), this.builder.get_insert_block().unwrap())]);
+            this.builder.build_unconditional_branch(exit);
+            this.builder.clear_insertion_position();
+        } 
+        if !this.returned{
+            let builder = exit_block_builder;
+            builder.build_return(Some(&usize_type.const_zero()));
+        }
+        let jit_instrcution=JITInstruction{
+            function, align: constant_layout.align(), size: constant_layout.size(), is_returned:this.returned, operand_types, constant_size , constants: jit_constants };
+        Ok(jit_instrcution)
+    }
+    pub(crate) fn generate_instruction_set_jit(
+        instructions: &[(usize, InstructionType)],
+        instruction_count: usize,
+        context: &'ctx Context,
+        global: Rc<RefCell<GlobalBuilder<'ctx>>>,
+    ) -> Result<Vec<JITInstruction>>where 'ctx:'static {
+        let instruction_count = instruction_count;
+        let deploy_table_entry_type = get_instruction_function_type(context).ptr_type(AddressSpace::Generic);
+        let deploy_table_type = deploy_table_entry_type.array_type(instruction_count.try_into()?);
+        let mut jit_instructions = Vec::with_capacity(instruction_count as usize);
+        for (index, (_opcode, instruction)) in instructions.iter().enumerate() {
+            match instruction {
+                InstructionType::Stateful(stateful_instruction) => {
+                    let _metadata = stateful_instruction.metadata.clone();
+                    let start = index;
+                    for (index, state) in stateful_instruction.statuses.iter().enumerate() {
+                        let state_instruction: InstructionType = InstructionType::Complex(CowArc::new(state.instruction.clone()));
+                        let jit_instruction = Self::generate_instruction_jit(
+                            &state_instruction,
+                            global.clone(),
+                            Some(&*stateful_instruction),
+                            &format!("instruction_{}", instruction.get_name()),
+                        )
+                        .map_err(|e| ErrorWhileGenerateInstruction(start + index, Box::new(e)))?;
+                        jit_instructions.push(jit_instruction);
+                    }
+                }
+                _ => {
+                    let jit_instruction = Self::generate_instruction_jit(
+                        &*instruction,
+                        global.clone(),
+                        None,
+                        &format!("instruction_{}", instruction.get_name()),
+                    )
+                    .map_err(|e| ErrorWhileGenerateInstruction(index, Box::new(e)))?;
+                    if !jit_instruction.function.verify(true) {
+                        return Err(LLVMVerifyFailed(jit_instruction.function.print_to_string().to_string()));
+                    };
+                    jit_instructions.push(jit_instruction);
+                }
+            }
+        }
+        if jit_instructions.len() != instruction_count as usize {
+            return Err(WroneInstructionCount(jit_instructions.len(), instruction_count as usize));
+        }
+        let module=&*global.borrow().module;
+        let pass_manager_builder=PassManagerBuilder::create();
+        pass_manager_builder.set_optimization_level(inkwell::OptimizationLevel::Aggressive);
+        let pass_manager = PassManager::create(module);
+        for jit_instruction in jit_instructions.iter(){
+            pass_manager.run_on(&jit_instruction.function);
+        }
+        pass_manager.finalize();
+        Ok(jit_instructions)
     }
 
     pub fn branch(&self, target: &Constant<'ctx>) -> Result<BasicBlock<'ctx>> {
@@ -2337,6 +2556,15 @@ impl<'ctx, 'm> LLVMFunctionBuilder<'ctx> {
                 self.ip_phi.add_incoming(&[(&next_ip, block)]);
                 block
             }
+            TargetBlock::IR(offset) => {
+                let block = context.append_basic_block(self.function, "branch");
+                let branch_builder = context.create_builder();
+                branch_builder.position_at_end(block);
+                branch_builder.build_unconditional_branch(self.exit);
+                builder.clear_insertion_position();
+                self.ip_phi.add_incoming(&[(&offset, block)]);
+                block
+            },
         })
     }
 }
@@ -3031,7 +3259,7 @@ pub(crate) fn get_boostrap_instruction_metadata<'ctx>(
                 Type::MetaData(m) => m.get(index).ok_or_else(|| MetadataIndexOutOfRange(ty.clone(), index))?,
                 o => return Err(ExceptMetadataType(o.clone())),
             };
-            let meta_type = meta.get_type()?.clone();
+            let meta_type = meta.try_map(|r|r.get_type().cloned())?;
             InstructionMetadata {
                 operands: vec![
                     OperandMetadata { input: true, output: false, value_type: Type::Pointer(CowArc::new(ty.clone())), name: "ptr".into() },
@@ -3174,10 +3402,10 @@ pub(crate) fn get_boostrap_instruction_metadata<'ctx>(
 }
 //  fn(/* register */ *mut usize, /* ip */ *const u8) -> u16;
 pub(crate) fn get_instruction_function_type<'ctx>(context: &'ctx Context) -> FunctionType<'ctx> {
-    context.i64_type().fn_type(
+    context.custom_width_int_type(usize::BITS).fn_type(
         &[
             // registers
-            context.i64_type().ptr_type(AddressSpace::Local).into(),
+            context.custom_width_int_type(usize::BITS).ptr_type(AddressSpace::Local).into(),
             // instruction
             context.i8_type().ptr_type(AddressSpace::Global).into(),
         ],

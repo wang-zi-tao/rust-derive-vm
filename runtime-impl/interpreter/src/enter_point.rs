@@ -18,7 +18,7 @@ use vm_core::{
     FunctionType, IntKind, ObjectBuilder, ObjectBuilderImport, ObjectBuilderInner, ObjectRef, RelocationKind, SymbolBuilder, Tuple, _ghost_cell::GhostToken,
 };
 
-use crate::FunctionResource;
+use crate::InterpreterFunction;
 
 #[repr(C)]
 pub struct FunctionMetadata {

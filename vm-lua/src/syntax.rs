@@ -64,14 +64,17 @@ pub fn parse(source: Vec<LuaLexical>) -> Fallible<Vec<FunctionPack<LuaInstructio
               [stat_list,return_expr(r)]=>ctx.emit_return(r);
                 | [stat_list]=>ctx.emit_return(None);
             },
-            block=>(LuaBlockRef<'_>,LuaBlockRef<'_>)->{
-              [scopt_begin(b),stat_list,return_expr(r),block_split(s)]=>ctx.return_(r,s);
-                | [scopt_begin(b),stat_list,block_split(s)]=>Ok(s);
+            block=>(LuaBlockRef<'_>,LuaBlockRef<'_>)->{ [scopt_begin(b),block_inner(i)]=>Ok(i); },
+            loop_block=>(LuaBlockRef<'_>,LuaBlockRef<'_>)->{ [loop_scopt_begin(b),block_inner(i)]=>Ok(i); },
+            block_inner=>(LuaBlockRef<'_>,LuaBlockRef<'_>)->{
+              [stat_list,return_expr(r),block_split(s)]=>ctx.return_(r,s);
+                | [stat_list,block_split(s)]=>Ok(s);
             },
             stat_list=>()->{ []|[stat,stat_list] },
             block_split=>(LuaBlockRef<'_>,LuaBlockRef<'_>)->{ []=>Ok((ctx.current_block.clone(),ctx.new_block().clone())); },
             current_block=>LuaBlockRef<'_>->{ []=>Ok(ctx.current_block.clone()); },
             scopt_begin=>LuaScoptRef<'_>->{ []=>Ok(ctx.new_scopt(ScoptKind::Other).clone()); },
+            loop_scopt_begin=>LuaScoptRef<'_>->{ []=>Ok(ctx.new_scopt(ScoptKind::Loop{break_block:ctx.current_block.clone()}).clone()); },
             stat->{
                 [t!(;)]=>Ok(());
               | [stat_var_list(v),t!(=),expr_list(exprs)]=>ctx.put_values(v,exprs);
@@ -80,19 +83,22 @@ pub fn parse(source: Vec<LuaLexical>) -> Fallible<Vec<FunctionPack<LuaInstructio
               | [t!(::),Name(n),t!(::)]=>ctx.define_label(n);
               | [t!(break)]=>ctx.break_();
               | [t!(goto),Name(n)]=>ctx.goto(n);
-              | [t!(do),block(b),t!(end)]=>ctx.finish_block(b);
-              | [t!(while),expr_wraped(e),block_split(s),t!(do),block(b),t!(end)]=>ctx.while_(e,s,b);
-              | [t!(repeat),block_split(s),block(b),t!(until),expr_wraped(e)]=>ctx.repeat(s,b,e);
               | [if_prefix(p),block_split(b),t!(else),block(a),t!(end)]=>ctx.else_(p,b,a);
               | [if_prefix(p),t!(end),block_split(b)]=>ctx.end_if(p,b);
-              | [t!(for),Name(n),t!(=),expr(e),t!(,),expr(e1),t!(do),block_split(p),block_split(p1),block(b),t!(end)]=>ctx.for_(n,e,e1,p,p1,b);
-              | [t!(for),Name(n),t!(=),expr(e),t!(,),expr(e1),t!(,),expr(e2),t!(do),block_split(p),block_split(p1),block(b),t!(end)]=>ctx.for_step(n,e,e1,e2,p,p1,b);
-              | [t!(for),name_list(n),t!(in),expr_list(e),t!(do),block_split(p),block_split(p1),block(b),t!(end)]=>ctx.for_in(n,e,p,p1,b);
               | [t!(function),Name(n),function_boby(f)]=>ctx.set_function(n,f);
               | [t!(local),t!(function),Name(n),function_boby(f)]=>ctx.local_function(n,f);
               | [t!(local),att_name_list(a)]=>ctx.local_variable(a);
               | [t!(local),att_name_list(a),t!(=),expr_list(e)]=>ctx.local_variable_with_values(a,e);
+              | [t!(do),loop_block(b),t!(end)]=>ctx.finish_block(b);
+              | [t!(while),expr_wraped(e),block_split(s),t!(do),loop_block(b),t!(end)]=>ctx.while_(e,s,b);
+              | [t!(repeat),block_split(s),loop_block(b),t!(until),expr_wraped(e)]=>ctx.repeat(s,b,e);
+              | [t!(for),for_head(h),block_inner(b),t!(end)]=>ctx.for_(h,b);
+              | [t!(for),for_each_head(h),block_inner(b),t!(end)]=>ctx.for_step(h,b);
+              | [t!(for),for_in_head(h),block_inner(b),t!(end)]=>ctx.for_in(h,b);
             },
+            for_head->{ [Name(n),t!(=),expr(e),t!(,),expr(e1),t!(do),block_split(p),block_split(p1),loop_scopt_begin]=>ctx.for_head(n,e,e1,p,p1); },
+            for_each_head->{ [Name(n),t!(=),expr(e),t!(,),expr(e1),t!(,),expr(e2),t!(do),block_split(p),block_split(p1),loop_scopt_begin]=>ctx.for_step_head(n,e,e1,e2,p,p1); },
+            for_in_head->{ [name_list(n),t!(in),expr_list(e),t!(do),block_split(p),block_split(p1),loop_scopt_begin]=>ctx.for_in_head(n,e,p,p1); },
             expr_wraped=>((LuaBlockRef<'_>,LuaBlockRef<'_>),LuaExprRef)->{ [block_split(b),expr(e)]=>Ok((b,e)); },
             if_prefix=>(LuaBlockRef<'_>,LuaBlockRef<'_>)->{
               [t!(if),expr(e),block_split(b),t!(then),block(c)]=>ctx.if_(e,b,c);
