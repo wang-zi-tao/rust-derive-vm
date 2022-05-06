@@ -174,7 +174,7 @@ pub fn run_code(lua_state: LuaStateReference, code: &str) -> Fallible<()> {
 #[cfg(test)]
 mod tests {
     use failure::Fallible;
-    use interpreter::Interpreter;
+    use llvm_runtime::Interpreter;
     use log::debug;
     use memory_mmmu::MemoryMMMU;
     use scan_dir::ScanDir;

@@ -1,7 +1,7 @@
 use super::ir::I64ToF64;
 use super::{ir, ir::*, lua_lexical::*};
 use crate::error::LuaVMError;
-use crate::instruction::{CallFunction0VaSliceRet1, CallFunctionVaSliceRet1, ForInLoopJump, GetField, NewUpValue, Return0VaSlice, ReturnVaSlice, SetElement, SetUpRef, SetUpValue};
+use crate::instruction::{CallFunction0VaSliceRet1, CallFunctionVaSliceRet1, ForInLoopJump, GetField, GetRet, NewUpValue, Return0VaSlice, ReturnVaSlice, SetElement, SetUpRef, SetUpValue};
 use crate::instruction::{GetVaArg, InlineCacheLineImpl};
 use crate::{instruction::{BranchIf, ConstM1, ConstNil, ConstZero, F64ToValue, I64ToValue}, mem::*};
 use e::{Goto, F64, U8};
@@ -838,6 +838,7 @@ impl<'l> LuaContext<'l> {
                 "function_builder.add_block:{:?}",
                 block.borrow(&self.token).builder.borrow(self.token())
             );
+            assert_ne!(block.borrow(&self.token).builder.borrow(self.token()).len(), 0);
             function_builder.add_block(block.borrow(&mut self.token).builder.clone());
         }
         let reg_count = self.current_function().register_pool.borrow().max_allocated();
@@ -1575,9 +1576,9 @@ impl<'l> LuaContext<'l> {
         trace!("while_");
         self.branch_if(
             predicate_expr,
+            &predicate_block_end,
             &loop_block_begin,
             &post_block_begin,
-            &self.current_block.clone(),
         )?;
         self.branch(&loop_block_end, &predicate_block_begin)?;
         self.branch(&pre_block_end, &predicate_block_begin)?;
@@ -1838,7 +1839,7 @@ impl<'l> LuaContext<'l> {
     }
     pub fn for_in_head(
         &mut self,
-        vars: Vec<String>,
+        mut vars: Vec<String>,
         exprs: LuaExprList<'l>,
         (init_block_end, predicate_block_begin): (LuaBlockRef<'l>, LuaBlockRef<'l>),
         (predict_block_end, loop_block_begin): (LuaBlockRef<'l>, LuaBlockRef<'l>),
@@ -1849,7 +1850,8 @@ impl<'l> LuaContext<'l> {
         Vec<LuaExprRef<'l>>,
     )> {
         let mut new_vars = Vec::new();
-        for var in vars {
+        let rets = vars.split_off(1);
+        for var in rets {
             let reg = self.alloc_register()?;
             let expr = LuaExpr::new_value(reg.clone());
             self.add_local(var, Default::default(), expr.clone())?;
@@ -1882,15 +1884,54 @@ impl<'l> LuaContext<'l> {
         let iter = self.to_value(state_less_iter[0].clone())?;
         let iterable = self.to_value(state_less_iter[1].clone())?;
         let state = self.to_writable_value(state_less_iter[2].clone())?;
-        ForInLoopJump::emit(
-            predicate_block_begin,
-            &mut self.token,
-            loop_block_begin,
-            post_block_begin,
-            iter.value_reg(),
-            iterable.value_reg(),
-            state.value_reg(),
-        )?;
+        match new_vars.len() {
+            0 => {
+                ForInLoopJump1::emit(
+                    predicate_block_begin,
+                    &mut self.token,
+                    loop_block_begin,
+                    post_block_begin,
+                    iter.value_reg(),
+                    iterable.value_reg(),
+                    state.value_reg(),
+                )?;
+            }
+            1 => {
+                let ret1 = new_vars[0].value_reg();
+                ForInLoopJump2::emit(
+                    predicate_block_begin,
+                    &mut self.token,
+                    loop_block_begin,
+                    post_block_begin,
+                    iter.value_reg(),
+                    iterable.value_reg(),
+                    state.value_reg(),
+                    ret1,
+                )?;
+            }
+            o => {
+                let rets = self.alloc_register()?;
+                ForInLoopJump::emit(
+                    predicate_block_begin,
+                    &mut self.token,
+                    loop_block_begin,
+                    post_block_begin,
+                    iter.value_reg(),
+                    iterable.value_reg(),
+                    state.value_reg(),
+                    &rets,
+                )?;
+                for (var_index, var) in new_vars.into_iter().enumerate() {
+                    GetRet::emit(
+                        predicate_block_begin,
+                        &mut self.token,
+                        Usize(var_index + 1),
+                        &rets,
+                        &var.value_reg(),
+                    )?;
+                }
+            }
+        };
         Ok(())
     }
     // [t!(function),function_boby(f)]=>ctx.function(f);

@@ -2287,7 +2287,11 @@ impl<'ctx, 'm> LLVMFunctionBuilder<'ctx> {
         }
         if !this.returned {
             let builder = exit_block_builder;
-            let next_ip = builder.build_int_add(constant_address, usize_type.const_int(constant_layout.size() as u64, false), "next_ip");
+            let next_ip = if this.termined {
+                builder.build_ptr_to_int(ip_phi.as_basic_value().into_pointer_value(), usize_type, "ip_phi_as_int")
+            } else {
+                builder.build_int_add(constant_address, usize_type.const_int(constant_layout.size() as u64, false), "next_ip")
+            };
             let next_ip = if matches!(instruction_type, InstructionType::Bootstrap(BootstrapInstruction::MakeSlice)) {
                 builder.build_int_add(
                     next_ip,

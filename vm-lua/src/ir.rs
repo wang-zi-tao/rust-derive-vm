@@ -5,7 +5,7 @@ use runtime_extra::{self as e};
 
 make_instruction_set! {
   LuaInstructionSet=[
-    Nop->b::Nop,//0
+    ThrowError->i::ThrowError,
     MoveI64->i::MoveI64,MoveF64->i::MoveF64,MoveValue->i::MoveValue,//3
     ConstM1->i::ConstM1,ConstZero->i::ConstZero,ConstOne->i::ConstOne,ConstI64->e::I64Const,ConstF64->e::F64Const,ConstValue->i::ConstValue,//8
     ConstNil->i::ConstNil,ConstTrue->i::ConstTrue,ConstFalse->i::ConstFalse,//11
@@ -60,7 +60,7 @@ make_instruction_set! {
     Return->i::Return,Return0->i::Return0,Return1->i::Return1,Return2->i::Return2,Return3->i::Return3,
     BreakPoint->i::BreakPoint,
     MakeTable->i::MakeTable,MakeTable0->i::MakeTable0,
-    ForInLoopJump->i::ForInLoopJump,
+    ForInLoopJump1->i::ForInLoopJump1,ForInLoopJump2->i::ForInLoopJump2,ForInLoopJump->i::ForInLoopJump,
     ConstClosure0->i::ConstClosure0,ConstClosure->i::ConstClosure,SetUpRef->i::SetUpRef,NewUpValue->i::NewUpValue
   ]
 }

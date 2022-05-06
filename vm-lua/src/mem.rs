@@ -171,6 +171,7 @@ pub struct LuaF64 {
 pub type LuaF64Reference = Reference<LuaF64, TypeResourceImpl>;
 pub type I64Reference = Reference<I64, TypeResourceImpl>;
 pub type F64Reference = Reference<F64, TypeResourceImpl>;
+type LuaBool = I64;
 #[derive(TypeDeclaration)]
 #[make_type(make_instruction,tag_mask=[0..4])]
 pub enum LuaValue {
@@ -178,7 +179,7 @@ pub enum LuaValue {
     BigInt(LuaI64Reference),
     Float(I64),
     BigFloat(LuaF64Reference),
-    Boolean(Bool),
+    Boolean(LuaBool),
     String(LuaStringReference),
     Nil,
     Table(LuaTableReference),

@@ -6,8 +6,9 @@ use vm_core::{Direct, MoveIntoObject, ObjectBuilder, Pointer, Slice, TypeDeclara
 
 make_instruction! { ConstValue->fn<const v:LuaValue>()->(o:LuaValue){ entry:{ %o=b::Move<LuaValue::TYPE>(%v); }} }
 make_instruction! { ConstNil->fn()->(o:LuaValue){ entry:{ %o= lua_value::EncodeNil(b::UninitedStruct<Unit::TYPE>()); }} }
-make_instruction! { ConstTrue->fn()->(o:LuaValue){ entry:{ %o= lua_value::EncodeBoolean(true); }} }
-make_instruction! { ConstFalse->fn()->(o:LuaValue){ entry:{ %o= lua_value::EncodeBoolean(true); }} }
+make_instruction! { EncodeBoolean->fn(i:Bool)->(o:LuaValue){ entry:{ %o=lua_value::EncodeBoolean(b::IntExtend<7,0>(%i)); }} }
+make_instruction! { ConstTrue->fn()->(o:LuaValue){ entry:{ %o= EncodeBoolean(true); }} }
+make_instruction! { ConstFalse->fn()->(o:LuaValue){ entry:{ %o= EncodeBoolean(true); }} }
 make_instruction! { ConstZero->fn()->(o:I64){ entry:{ %o=0; }} }
 make_instruction! { ConstOne->fn()->(o:I64){ entry:{ %o=1; }} }
 make_instruction! { ConstM1->fn()->(o:I64){ entry:{ %o=-1; }} }
@@ -77,7 +78,7 @@ make_instruction! { ToBool->fn(v:LuaValue)->(o:Bool){
     entry:{ if lua_value::IsBoolean(%v) %is_bool %not_bool; },
     not_bool:{ if lua_value::IsNil(%v) %is_nil %other; },
     is_nil:{ %o=false; },
-    is_bool:{ %o=lua_value::DecodeBooleanUnchecked(%v); },
+    is_bool:{ %o=I64Ne(lua_value::DecodeBooleanUnchecked(%v),0); },
     other:{ %o=true; }
 } }
 make_instruction! { LogicalOr->fn(lhs:LuaValue,rhs:LuaValue)->(o:LuaValue){
@@ -86,7 +87,7 @@ make_instruction! { LogicalOr->fn(lhs:LuaValue,rhs:LuaValue)->(o:LuaValue){
     false:{ %o =b::Move<LuaValue::TYPE>(%rhs); },
 } }
 make_instruction! { LogicalNot->fn(v:LuaValue)->(o:LuaValue){
-    entry:{ %o = lua_value::EncodeBoolean(BoolNot(ToBool(%v))); },
+    entry:{ %o = EncodeBoolean(BoolNot(ToBool(%v))); },
 } }
 type GetMetaValueCall = GetMetaValue<lua_meta_functions::ReadCall>;
 type LuaValueSliceGet = SliceGet<LuaValue>;
@@ -478,8 +479,25 @@ make_instruction! {
     }}
 }
 make_instruction! {
-    ForInLoopJump->fn<block loop,block break>(iter:LuaValue,iterable:LuaValue,state:LuaValue)->(state:LuaValue){ entry:{
+    ForInLoopJump1->fn<block loop,block break>(iter:LuaValue,iterable:LuaValue,state:LuaValue)->(state:LuaValue){ entry:{
         %new_state = CallFunction2Ret1(%iter,%iterable,%state);
+        %state = b::Move<LuaValue::TYPE>(%new_state);
+        if lua_value::IsNil(%new_state) %loop %break;
+    }}
+}
+make_instruction! {
+    ForInLoopJump2->fn<block loop,block break>(iter:LuaValue,iterable:LuaValue,state:LuaValue)->(state:LuaValue,ret1:LuaValue){ entry:{
+        %rets = CallFunction2(%iter,%iterable,%state);
+        %new_state = GetRet0(%rets);
+        %state = b::Move<LuaValue::TYPE>(%new_state);
+        %ret1 = DoGetRet(%rets,b::IntTruncate<12,7>(1));
+        if lua_value::IsNil(%new_state) %loop %break;
+    }}
+}
+make_instruction! {
+    ForInLoopJump->fn<block loop,block break>(iter:LuaValue,iterable:LuaValue,state:LuaValue)->(state:LuaValue,rets:Pointer<UnsizedArray<LuaValue>>){ entry:{
+        %rets = CallFunction2(%iter,%iterable,%state);
+        %new_state = GetRet0(%rets);
         %state = b::Move<LuaValue::TYPE>(%new_state);
         if lua_value::IsNil(%new_state) %loop %break;
     }}
@@ -1005,17 +1023,17 @@ pub struct WrapInteger<I: Instruction>(PhantomData<I>);
 pub struct WrapFloat<I: Instruction>(PhantomData<I>);
 #[derive(Instruction)]
 #[instruction( WrapBinaryIntToBool->fn(i1:I64,i2:I64)->(o:LuaValue){ entry:{
-    %o = lua_value::EncodeBoolean(I(%i1,%i2));
+    %o = EncodeBoolean(I(%i1,%i2));
 } })]
 pub struct WrapBinaryIntToBool<I: Instruction>(PhantomData<I>);
 #[derive(Instruction)]
 #[instruction( FlipBinaryIntegerToBool->fn(v1:I64,v2:I64)->(o:LuaValue){ entry:{
-    %o = lua_value::EncodeBoolean(I(%v2,%v1));
+    %o = EncodeBoolean(I(%v2,%v1));
 } })]
 pub struct FlipBinaryIntegerToBool<I: Instruction>(PhantomData<I>);
 #[derive(Instruction)]
 #[instruction( WrapBinaryFloatToBool->fn(i1:F64,i2:F64)->(o:LuaValue){ entry:{
-    %o = lua_value::EncodeBoolean(I(%i1,%i2));
+    %o = EncodeBoolean(I(%i1,%i2));
 } })]
 pub struct WrapBinaryFloatToBool<I: Instruction>(PhantomData<I>);
 #[derive(Instruction)]
@@ -1504,6 +1522,14 @@ make_instruction! {
             if UsizeGt(b::IntTruncate<12,7>(0),b::GetLength<UnsizedArray::<LuaValue>::TYPE>(%rets)) %empty %not_empty; },
         empty:{%r=ConstNil();},
         not_empty:{%r=LuaValueArrayGet(%rets,b::IntTruncate<12,7>(0));},
+    }
+}
+make_instruction! {
+    DoGetRet->fn(rets:Pointer<UnsizedArray<LuaValue>>,index:Usize)->(r:LuaValue){
+        entry:{
+            if UsizeGt(%index,b::GetLength<UnsizedArray::<LuaValue>::TYPE>(%rets)) %empty %not_empty; },
+        empty:{%r=ConstNil();},
+        not_empty:{%r=LuaValueArrayGet(%rets,%index);},
     }
 }
 make_instruction! {

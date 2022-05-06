@@ -1,4 +1,4 @@
-use llvm_runimte::Interpreter;
+use llvm_runtime::Interpreter;
 use memory_mmmu::MemoryMMMU;
 use runtime::{
     code::{BlockBuilder, BuddyRegisterPool, FunctionBuilder, FunctionPack},

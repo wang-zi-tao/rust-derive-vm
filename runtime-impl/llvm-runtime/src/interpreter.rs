@@ -247,6 +247,9 @@ impl RawInterpreter {
             let instruction_functions =
                 LLVMFunctionBuilder::generate_instruction_set_interpreter(instructions, instruction_count, context_ref, global_builder.clone(), name)?;
             let GlobalBuilder { symbol_maps, module, .. } = Rc::try_unwrap(global_builder).unwrap().into_inner();
+            if let Some(i) = module.get_function("instruction_BranchIf") {
+                i.print_to_stderr()
+            }
             FunctionBinder::generate(context_ref, &module, instruction_functions.as_pointer_value(), 12)?;
             module.verify().map_err(|e| format_err!("llvm verify error: {}", e.to_string()))?;
             let execution_engine = module.create_jit_execution_engine(inkwell::OptimizationLevel::Aggressive).map_err(|e| format_err!("llvm error: {}", e))?;
