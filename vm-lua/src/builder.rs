@@ -1,8 +1,8 @@
 use super::ir::I64ToF64;
 use super::{ir, ir::*, lua_lexical::*};
 use crate::error::LuaVMError;
-use crate::instruction::{CallFunction0VaSliceRet1, CallFunctionVaSliceRet1, ForInLoopJump, GetField, GetRet, NewUpValue, Return0VaSlice, ReturnVaSlice, SetElement, SetUpRef, SetUpValue};
-use crate::instruction::{GetVaArg, InlineCacheLineImpl};
+use crate::instruction::{CallFunction0VaSliceRet1, CallFunctionVaSliceRet1, ForInLoopJump, GetField, GetRet, GetVaArgs, NewUpValue, Return0VaSlice, ReturnVaSlice, SetElement, SetUpRef, SetUpValue};
+use crate::instruction::{GetArg, InlineCacheLineImpl};
 use crate::{instruction::{BranchIf, ConstM1, ConstNil, ConstZero, F64ToValue, I64ToValue}, mem::*};
 use e::{Goto, F64, U8};
 use failure::Fallible;
@@ -286,18 +286,6 @@ impl<'l> LuaContext<'l> {
         };
         this
     }
-    pub fn new_function(&mut self) -> &LuaFunctionBuilderRef<'l> {
-        let new_function = LuaFunctionBuilder::new();
-        let new_scopt = new_function.current_scopt.clone();
-        let new_block = new_function.current_block.clone();
-        let new_function = Rc::new(GhostCell::new(new_function));
-        self.closure_stack.push(new_function.clone());
-        self.current_function = new_function;
-        self.current_scopt = new_scopt;
-        self.current_builder = new_block.borrow(self.token()).builder.clone();
-        self.current_block = new_block;
-        &self.current_function
-    }
     pub fn builder(&self) -> &BlockBuilder<'l, LuaInstructionSet> { &self.current_builder }
     pub fn token(&self) -> &GhostToken<'l> { &self.token }
     pub fn token_mut(&mut self) -> &mut GhostToken<'l> { &mut self.token }
@@ -308,8 +296,11 @@ impl<'l> LuaContext<'l> {
         &self.current_scopt
     }
     pub fn new_block(&mut self) -> &LuaBlockRef<'l> {
-        trace!("new_block");
         let new_block = self.current_function_mut().new_block();
+        debug!(
+            "new_block {:?}",
+            &new_block.borrow(self.token()).builder().borrow(self.token())
+        );
         self.current_builder = new_block.borrow(self.token()).builder.clone();
         self.current_block = new_block;
         &self.current_block
@@ -511,7 +502,7 @@ impl<'l> LuaContext<'l> {
     pub fn const_va_arg0(&mut self) -> Fallible<LuaExprRef<'l>> {
         let reg = self.alloc_register()?;
         let va_args = self.va_args()?;
-        GetVaArg::emit(&self.current_builder, &mut self.token, Usize(0), &va_args, &reg)?;
+        GetArg::emit(&self.current_builder, &mut self.token, Usize(0), &va_args, &reg)?;
         Ok(LuaExpr::new_value(reg))
     }
     pub fn const_table(&mut self, table_decl: Vec<(LuaTableKey<'l>, LuaExprRef<'l>)>) -> Fallible<LuaExprRef<'l>> {
@@ -744,44 +735,71 @@ impl<'l> LuaContext<'l> {
         self.emit_return(exprs)?;
         Ok((pre_block, post_block))
     }
-    pub fn define_parameters(
-        &mut self,
-        parameters: Vec<String>,
-        va_param: bool,
-    ) -> Fallible<LuaFunctionBuilderRef<'l>> {
-        let function = self.current_function_mut();
-        function.parameters = parameters.clone();
-        function.va_param = va_param;
-        let function = self.current_function_mut();
-        function.register_pool =
-            BuddyRegisterPool::reserve_range(0..(LUA_PIN_REG_COUNT as usize + function.parameters.len()).try_into()?);
-        for (index, param) in parameters.iter().enumerate() {
+    pub fn new_function(&mut self, parameters: Vec<String>, va_param: bool) -> Fallible<LuaFunctionBuilderRef<'l>> {
+        let new_function = LuaFunctionBuilder::new();
+        let new_scopt = new_function.current_scopt.clone();
+        let new_block = new_function.current_block.clone();
+        let new_function = Rc::new(GhostCell::new(new_function));
+        self.closure_stack.push(new_function.clone());
+        self.current_function = new_function.clone();
+        self.current_scopt = new_scopt.clone();
+        self.current_builder = new_block.borrow(self.token()).builder.clone();
+        self.current_block = new_block.clone();
+        {
+            let new_function = new_function.borrow_mut(self.token_mut());
+            new_function.parameters = parameters.clone();
+            new_function.va_param = va_param;
+            new_function.register_pool = BuddyRegisterPool::reserve_range(
+                0..(LUA_PIN_REG_COUNT as usize + new_function.parameters.len()).try_into()?,
+            );
+        }
+        let va_args_reg = Register::new_const((LUA_PIN_REG_COUNT as usize + parameters.len()).try_into()?);
+        GetVaArgs::emit(
+            &self.current_builder,
+            &mut self.token,
+            Usize(parameters.len().try_into()?),
+            &LUA_ARGS_REG,
+            &va_args_reg,
+        )?;
+        for (index, param) in parameters.into_iter().enumerate() {
             let reg_index = (index + LUA_PIN_REG_COUNT as usize).try_into()?;
-            let scopt = self.current_scopt_mut();
-            scopt.variables.insert(param.to_string(), LuaVariable {
-                expr: Rc::new(
-                    LuaExprBuilder::default()
-                        .register(LuaRegister::Value(Register::new_const(reg_index), None))
-                        .lifetime(ExprLifeTimeKind::COW)
-                        .build()?,
-                ),
-                attributes: Default::default(),
-                upvalue: None,
-            });
+            let reg = Register::new_const(reg_index);
+            GetArg::emit(
+                &self.current_builder,
+                &mut self.token,
+                Usize(reg_index as usize),
+                &LUA_ARGS_REG,
+                &reg,
+            )?;
+            new_scopt
+                .borrow_mut(self.token_mut())
+                .variables
+                .insert(param, LuaVariable {
+                    expr: Rc::new(
+                        LuaExprBuilder::default()
+                            .register(LuaRegister::Value(reg, None))
+                            .lifetime(ExprLifeTimeKind::COW)
+                            .build()?,
+                    ),
+                    attributes: Default::default(),
+                    upvalue: None,
+                });
         }
         Ok(self.current_function.clone())
     }
     pub fn finish_function(
         &mut self,
-        (_finish_block, _last_block): (LuaBlockRef<'l>, LuaBlockRef<'l>),
+        (finish_block, _last_block): (LuaBlockRef<'l>, LuaBlockRef<'l>),
     ) -> Fallible<LuaFunctionBuilderRef<'l>> {
         debug!("finish_function");
-        self.emit_return(None)?;
-        let function = self.current_function.clone();
-        self.closure_stack.pop();
-        self.current_function = self.closure_stack.pop().unwrap();
+        let function = self.closure_stack.pop().unwrap();
+        function.borrow_mut(self.token_mut()).blocks.pop().unwrap();
+        let builder = finish_block.borrow(self.token()).builder().clone();
+        Return0::emit(&builder, &mut self.token)?;
+        self.current_function = self.closure_stack.last().unwrap().clone();
         self.current_scopt = self.current_function().current_scopt.clone();
         self.current_block = self.current_function().current_block.clone();
+        self.current_builder = self.current_block.borrow(self.token()).builder().clone();
         Ok(function)
     }
     pub fn finish_scopt(
@@ -1040,7 +1058,7 @@ impl<'l> LuaContext<'l> {
                 let va_args = self.va_args()?;
                 for i in 0..o {
                     let reg = self.alloc_register()?;
-                    GetVaArg::emit(&self.current_builder, &mut self.token, Usize(i), &va_args, &reg)?;
+                    GetArg::emit(&self.current_builder, &mut self.token, Usize(i), &va_args, &reg)?;
                     list.push(Rc::new(
                         LuaExprBuilder::default()
                             .register(LuaRegister::Value(reg, None))
@@ -1439,7 +1457,7 @@ impl<'l> LuaContext<'l> {
                 (_, None) => ConstNil::emit(&self.current_builder, &mut self.token, &reg)?,
                 (index, Some(VaArgs::VaArgs())) => {
                     let va_args = self.va_args()?;
-                    GetVaArg::emit(&self.current_builder, &mut self.token, Usize(index), &va_args, &reg)?
+                    GetArg::emit(&self.current_builder, &mut self.token, Usize(index), &va_args, &reg)?
                 }
                 (index @ 1.., Some(VaArgs::FunctionCall(f, args))) => {
                     let rets = self.emit_call(f, *args)?;

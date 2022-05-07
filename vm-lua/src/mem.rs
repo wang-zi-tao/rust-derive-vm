@@ -89,7 +89,7 @@ pub struct LuaClosure {
     pub up_values: UnsizedArray<LuaUpValueReference>,
 }
 make_reference!(LuaClosureReference, LuaClosure, TypeResourceImpl);
-pub struct LuaClosureReferenceSymbol(LuaClosureFunctionType);
+pub struct LuaClosureReferenceSymbol(Pointer<LuaClosureFunctionType>);
 impl TypeDeclaration for LuaClosureReferenceSymbol {
     type Impl = Self;
     const LAYOUT: TypeLayout = Pointer::<LuaClosureFunctionType>::LAYOUT;

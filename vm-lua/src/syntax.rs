@@ -281,9 +281,10 @@ pub fn parse(source: Vec<LuaLexical>) -> Fallible<Vec<FunctionPack<LuaInstructio
             function_def=>LuaFunctionBuilderRef->{[t!(function),function_boby(f)]=>Ok(f);},
             function_boby=>LuaFunctionBuilderRef->{[LeftParen,param_list(p),RightParen,block(b),t!(end)]=>ctx.finish_function(b);},
             param_list=>LuaFunctionBuilderRef<'_>->{
-              [t!(...)]=>ctx.define_parameters(vec![],false);
-                | [name_list(n)]=>ctx.define_parameters(n,false);
-                  | [name_list(n),t!(,),t!(...)]=>ctx.define_parameters(n,true);
+              []=>ctx.new_function(vec![],false);
+              | [t!(...)]=>ctx.new_function(vec![],true);
+              | [name_list(n)]=>ctx.new_function(n,false);
+              | [name_list(n),t!(,),t!(...)]=>ctx.new_function(n,true);
             },
             table_constructor=>Vec<(LuaTableKey,LuaExprRef)>->{
                 [LeftBrace,RightBrace]=>Ok(vec![]);

@@ -54,7 +54,7 @@ make_instruction_set! {
     CallFunction2Ret1->i::CallFunction2Ret1,CallFunction2VaSliceRet1->i::CallFunction2VaSliceRet1,CallFunction2VaRet1->i::CallFunction2VaRet1,
     CallFunction3->i::CallFunction3,CallFunction3VaSlice->i::CallFunction3VaSlice,CallFunction3VA->i::CallFunction3VA,
     CallFunction3Ret1->i::CallFunction3Ret1,CallFunction3VaSliceRet1->i::CallFunction3VaSliceRet1,CallFunction3VaRet1->i::CallFunction3VaRet1,
-    GetRet0->i::GetRet0,GetRet->i::GetRet,GetVaArg->i::GetVaArg,
+    GetRet0->i::GetRet0,GetRet->i::GetRet,GetArg->i::GetArg,GetVaArgs->i::GetVaArgs,
     ReturnVaSlice->i::ReturnVaSlice,Return0VaSlice->i::Return0VaSlice,Return1VaSlice->i::Return1VaSlice,Return2VaSlice->i::Return2VaSlice,Return3VaSlice->i::Return3VaSlice,
     ReturnVA->i::ReturnVA,Return0VA->i::Return0VA,Return1VA->i::Return1VA,Return2VA->i::Return2VA,Return3VA->i::Return3VA,
     Return->i::Return,Return0->i::Return0,Return1->i::Return1,Return2->i::Return2,Return3->i::Return3,

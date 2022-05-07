@@ -1541,12 +1541,15 @@ make_instruction! {
     }
 }
 make_instruction! {
-    GetVaArg->fn<const index:Usize>(rets:Slice<LuaValue>)->(r:LuaValue){
+    GetArg->fn<const index:Usize>(args:Slice<LuaValue>)->(r:LuaValue){
         entry:{
-            if UsizeGt(%index,LuaValueSliceLen(%rets)) %empty %not_empty; },
+            if UsizeGt(%index,LuaValueSliceLen(%args)) %empty %not_empty; },
         empty:{%r=ConstNil();},
-        not_empty:{%r=LuaValueSliceGet(%rets,%index);},
+        not_empty:{%r=LuaValueSliceGet(%args,%index);},
     }
 }
+make_instruction! {GetVaArgs->fn<const index:Usize>(args:Slice<LuaValue>)->(va_args:Slice<LuaValue>){ entry:{
+        %va_args=LuaValueSubSlice(%args,%index,UsizeSub(LuaValueSliceLen(%args),%index));
+}}}
 #[make_native_function(BreakPoint)]
 pub extern "C" fn __vm_lua_lib_break_point() { let _a = 0; }

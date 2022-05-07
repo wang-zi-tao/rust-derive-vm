@@ -69,7 +69,7 @@ impl UnsafeBuffer {
     pub unsafe fn grow(&mut self, new_size: usize) {
         let new_size = 1 << (usize::BITS - new_size.leading_zeros());
         let mut vec = Vec::<u8>::from_raw_parts(self.data.as_ptr().cast::<u8>(), self.len, self.capacity());
-        vec.reserve(new_size);
+        vec.reserve_exact(new_size - vec.len());
         *self = Self::from_vec(vec);
     }
 
@@ -121,6 +121,11 @@ impl UnsafeBuffer {
 
     pub unsafe fn try_get<T>(&mut self, offset: usize) -> Option<T> {
         self.try_get_ptr::<u8>(offset).map(|p| p.cast::<T>().as_ptr().read())
+    }
+
+    pub unsafe fn reserve_at(&mut self, offset: usize, len: usize) {
+        self.grow(offset + len);
+        self.len = self.len.max(offset + len);
     }
 }
 impl Debug for UnsafeBuffer {

@@ -5,7 +5,7 @@ use std::{
     mem,
     mem::{align_of, size_of, MaybeUninit},
     ops::Deref,
-    ptr::{null_mut, NonNull},
+    ptr::{null_mut, slice_from_raw_parts_mut, NonNull},
     sync::{Arc, Mutex, Weak},
 };
 
@@ -789,13 +789,25 @@ impl<'l> ObjectBuilderInner<'l> {
         self.receive_at(offset)
     }
 
+    pub fn receive_slice<T: Sized>(&mut self, len: usize) -> &mut [MaybeUninit<T>] {
+        self.align(align_of::<T>());
+        let offset = self.len();
+        self.receive_slice_at(offset, len)
+    }
+
     pub fn receive_at<T>(&mut self, offset: usize) -> &mut MaybeUninit<T> {
         unsafe {
-            for _ in 0..size_of::<T>() {
-                self.push(0u8);
-            }
+            self.buffer.reserve_at(offset, size_of::<T>());
             let ptr: NonNull<u8> = self.buffer.get_ptr(offset);
             ptr.cast().as_mut()
+        }
+    }
+
+    pub fn receive_slice_at<T>(&mut self, offset: usize, len: usize) -> &mut [MaybeUninit<T>] {
+        unsafe {
+            self.buffer.reserve_at(offset, len * size_of::<T>());
+            let ptr: NonNull<u8> = self.buffer.get_ptr(offset);
+            NonNull::new_unchecked(slice_from_raw_parts_mut(ptr.cast().as_ptr(), len)).as_mut()
         }
     }
 }
@@ -821,7 +833,7 @@ pub trait MoveIntoObject<'l> {
         Self: Sized,
     {
         let offset = object_builder.borrow(token).len();
-        object_builder.borrow_mut(token).grow(offset + size_of::<Self>());
+        object_builder.borrow_mut(token).receive_slice::<u8>(size_of::<Self>());
         Self::set(this, offset, object_builder, token)
     }
 }
