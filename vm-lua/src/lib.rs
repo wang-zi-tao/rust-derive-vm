@@ -160,7 +160,8 @@ pub fn load_code(code: &str) -> Fallible<ObjectRef> {
     for closure in pack {
         LUA_INTERPRETER.create(closure)?;
     }
-    ExecutableResourceTrait::<FunctionPack<LuaInstructionSet>>::get_object(&*resource)
+    let object = ExecutableResourceTrait::<FunctionPack<LuaInstructionSet>>::get_object(&*resource)?;
+    Ok(object)
 }
 pub fn run_code(lua_state: LuaStateReference, code: &str) -> Fallible<()> {
     let resource = load_code(code)?;

@@ -13,7 +13,7 @@ make_instruction! { ConstZero->fn()->(o:I64){ entry:{ %o=0; }} }
 make_instruction! { ConstOne->fn()->(o:I64){ entry:{ %o=1; }} }
 make_instruction! { ConstM1->fn()->(o:I64){ entry:{ %o=-1; }} }
 type WriteLuaUpValueRefArray = e::WriteElement<LuaUpValueReference, UnsizedArray<LuaUpValueReference>>;
-make_instruction! { ConstClosure0->fn<const function:LuaClosureReferenceSymbol>(state:LuaStateReference,up_value:LuaUpValueReference)->(v:LuaValue){ entry:{
+make_instruction! { ConstClosure0->fn<mut function:LuaClosureFunctionReference>(state:LuaStateReference,up_value:LuaUpValueReference)->(v:LuaValue){ entry:{
     %closure=b::AllocUnsized<LuaClosureReference::TYPE>(b::IntTruncate<12,7>(1));
     %closure_ptr=b::Deref<LuaClosureReference::TYPE>(%closure);
     b::SetLength<UnsizedArray::<LuaUpValueReference>::TYPE>(lua_closure::LocateUpValues(%closure_ptr),b::IntTruncate<12,7>(1));
@@ -25,7 +25,7 @@ make_instruction! { ConstClosure0->fn<const function:LuaClosureReferenceSymbol>(
 type LuaUpValueRefSliceCopy = SliceCopy<LuaUpValueReference>;
 type LuaUpValueRefSubSlice = SubSlice<LuaUpValueReference>;
 type UnsizedLuaUpValueRefArrayToSlice = UnsizedArrayToSlice<LuaUpValueReference>;
-make_instruction! { ConstClosure->fn<const function:LuaClosureReferenceSymbol>(state:LuaStateReference,up_value:LuaUpValueReference,parent_closure:LuaClosureReference)->(v:LuaValue){ entry:{
+make_instruction! { ConstClosure->fn<mut function:LuaClosureFunctionReference>(state:LuaStateReference,up_value:LuaUpValueReference,parent_closure:LuaClosureReference)->(v:LuaValue){ entry:{
     %parent_closure_ptr=b::Deref<LuaClosureReference::TYPE>(%parent_closure);
     %parent_len=b::GetLength<UnsizedArray::<LuaUpValueReference>::TYPE>(lua_closure::LocateUpValues(%parent_closure_ptr));
     %closure=b::AllocUnsized<LuaClosureReference::TYPE>(UsizeAdd(%parent_len,b::IntTruncate<12,7>(1)));

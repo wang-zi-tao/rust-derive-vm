@@ -49,7 +49,7 @@ struct ExecutableResourceInner {
 }
 impl ExecutableResourceImpl {
     pub fn new() -> Self {
-        Self { inner: RwLock::new(ExecutableResourceInner { state: ResourceState::Defined }), symbol_ref: SymbolRef::new() }
+        Self { inner: RwLock::new(ExecutableResourceInner { state: ResourceState::Defined }), symbol_ref: SymbolRef::default() }
     }
 
     fn get_state(&self) -> vm_core::ResourceState {

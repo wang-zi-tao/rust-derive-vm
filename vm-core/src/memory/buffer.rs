@@ -130,7 +130,7 @@ impl UnsafeBuffer {
 }
 impl Debug for UnsafeBuffer {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        unsafe { f.write_fmt(format_args!("UnsafeBuffer(size:{},capacity:{},{:X?})", self.len(), self.capacity(), self.borrow())) }
+        unsafe { f.write_fmt(format_args!("UnsafeBuffer(size:{},capacity:{},{:X?}@{:?})", self.len(), self.capacity(), self.borrow(), self.data)) }
     }
 }
 impl Clone for UnsafeBuffer {

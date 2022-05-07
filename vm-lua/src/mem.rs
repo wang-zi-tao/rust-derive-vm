@@ -1,7 +1,7 @@
 use crate::TypeResourceImpl;
 
 use lexical::_lazy_static::lazy_static;
-use vm_core::{make_reference, Aligned, FunctionType, MoveIntoObject, Native, ObjectBuilder, ObjectBuilderImport, ObjectBuilderInner, Pointer, Reference, Resource, SymbolBuilderRef, SymbolRef, Type, TypeDeclaration, TypeLayout, UnsizedArray};
+use vm_core::{make_reference, Aligned, Direct, FunctionType, MoveIntoObject, Native, ObjectBuilder, ObjectBuilderImport, ObjectBuilderInner, Pointer, Reference, Resource, SymbolBuilderRef, SymbolRef, Type, TypeDeclaration, TypeLayout, UnsizedArray};
 
 use runtime_extra::ty::*;
 use std::cell::UnsafeCell;
@@ -89,17 +89,17 @@ pub struct LuaClosure {
     pub up_values: UnsizedArray<LuaUpValueReference>,
 }
 make_reference!(LuaClosureReference, LuaClosure, TypeResourceImpl);
-pub struct LuaClosureReferenceSymbol(Pointer<LuaClosureFunctionType>);
-impl TypeDeclaration for LuaClosureReferenceSymbol {
+pub struct LuaClosureFunctionReference(Direct<LuaClosureFunctionType>);
+impl TypeDeclaration for LuaClosureFunctionReference {
     type Impl = Self;
-    const LAYOUT: TypeLayout = Pointer::<LuaClosureFunctionType>::LAYOUT;
-    const TYPE: Type = Pointer::<LuaClosureFunctionType>::TYPE;
+    const LAYOUT: TypeLayout = LuaClosureFunctionType::LAYOUT;
+    const TYPE: Type = LuaClosureFunctionType::TYPE;
 }
-impl<'b> MoveIntoObject<'b> for LuaClosureReferenceSymbol {
-    type Carrier = SymbolBuilderRef<'b>;
+impl<'b> MoveIntoObject<'b> for LuaClosureFunctionReference {
+    type Carrier = SymbolRef;
 
     fn set(
-        this: Self::Carrier,
+        carrier: Self::Carrier,
         offset: usize,
         object_builder: &ObjectBuilder<'b>,
         token: &mut ghost_cell::GhostToken<'b>,
@@ -108,9 +108,9 @@ impl<'b> MoveIntoObject<'b> for LuaClosureReferenceSymbol {
             object_builder,
             token,
             offset,
-            ObjectBuilderImport::Builder(this.object_builder().clone()),
+            ObjectBuilderImport::ObjectRef(carrier.object),
             vm_core::RelocationKind::UsizePtrAbsolute,
-            this.index(),
+            carrier.index,
         );
     }
 }

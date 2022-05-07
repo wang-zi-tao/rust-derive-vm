@@ -1,5 +1,5 @@
 use dashmap::{mapref::entry::Entry, DashMap};
-use failure::{format_err, Error};
+use failure::{format_err, Backtrace, Error};
 use os::mem::VM;
 use std::{
     cell::RefCell,
@@ -19,7 +19,7 @@ use crate::{
 #[derive(Fail, Debug)]
 pub enum AllocError {
     #[fail(display = "no space left")]
-    NoSpaceLeft(),
+    NoSpaceLeft(Backtrace),
     #[fail(display = "other allocation error :{}", _0)]
     OtherError(#[cause] Error),
     #[fail(display = "heap frame allocation failed!")]
@@ -229,7 +229,7 @@ impl GlobalSingleTypeHeapPool {
                 return Ok(r);
             }
         }
-        Err(AllocError::NoSpaceLeft())
+        Err(NoSpaceLeft(Backtrace::new()))
     }
 }
 pub struct LocalHeapPool {
@@ -300,9 +300,9 @@ pub fn try_alloc<'a>(ty: &RegistedType) -> AllocResult<NonNull<u8>> {
                     if pool.is_full() {
                         pools.mark_one_full();
                     }
-                    Ok(oop)
+                    return Ok(oop);
                 } else {
-                    Err(NoSpaceLeft())
+                    return Err(NoSpaceLeft(Backtrace::new()));
                 }
             }),
             AllocationStrategy::Large => {

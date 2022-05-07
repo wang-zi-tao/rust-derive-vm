@@ -1,7 +1,7 @@
 use super::ir::I64ToF64;
 use super::{ir, ir::*, lua_lexical::*};
 use crate::error::LuaVMError;
-use crate::instruction::{CallFunction0VaSliceRet1, CallFunctionVaSliceRet1, ForInLoopJump, GetField, GetRet, GetVaArgs, NewUpValue, Return0VaSlice, ReturnVaSlice, SetElement, SetUpRef, SetUpValue};
+use crate::instruction::{BreakPoint, CallFunction0VaSliceRet1, CallFunctionVaSliceRet1, ForInLoopJump, GetField, GetRet, GetVaArgs, NewUpValue, Return0VaSlice, ReturnVaSlice, SetElement, SetUpRef, SetUpValue};
 use crate::instruction::{GetArg, InlineCacheLineImpl};
 use crate::{instruction::{BranchIf, ConstM1, ConstNil, ConstZero, F64ToValue, I64ToValue}, mem::*};
 use e::{Goto, F64, U8};
@@ -11,7 +11,7 @@ use ghost_cell::{GhostCell, GhostToken};
 use log::{debug, trace};
 use runtime::code::{BlockBuilder, BuddyRegisterPool, FunctionBuilder, FunctionPack, RegisterPool};
 use runtime::instructions::bootstrap::MakeSlice;
-use vm_core::{FunctionTypeBuilder, ObjectBuilder, ObjectBuilderImport, ObjectBuilderInner, ObjectRef, RelocationKind, Slice, SymbolBuilder, SymbolBuilderRef, UnsizedArray};
+use vm_core::{FunctionTypeBuilder, ObjectBuilder, ObjectBuilderImport, ObjectBuilderInner, ObjectRef, RelocationKind, Slice, Symbol, SymbolBuilder, SymbolBuilderRef, SymbolRef, UnsizedArray};
 use vm_core::{Pointer, TypeDeclaration};
 
 use runtime_extra as e;
@@ -418,6 +418,11 @@ impl<'l> LuaContext<'l> {
         }
         Ok(())
     }
+    pub fn insert_break_point(&mut self) -> Fallible<()> {
+        BreakPoint::emit(&self.current_builder, &mut self.token)?;
+        Ok(())
+    }
+
     pub fn branch(&mut self, from: &LuaBlockRef<'l>, to: &LuaBlockRef<'l>) -> Fallible<()> {
         let from = &from.borrow(self.token()).clone().builder().clone();
         let to = &to.borrow(self.token()).clone().builder().clone();
@@ -583,7 +588,6 @@ impl<'l> LuaContext<'l> {
             }
             let array_reg = self.alloc_array::<LuaValue>(fields.len())?;
             let fields_reg = self.alloc_register()?;
-            BreakPoint::emit(&self.current_builder, &mut self.token).unwrap();
             MakeSlice::emit(&self.current_builder, &mut self.token, &*fields, &fields_reg, array_reg)?;
             self.free_array::<LuaValue>(fields.len(), array_reg);
             MakeTable::emit(
@@ -895,7 +899,12 @@ impl<'l> LuaContext<'l> {
             function_builder.add_block(block.borrow(&mut self.token).builder.clone());
         }
         let reg_count = self.current_function().register_pool.borrow().max_allocated();
-        let obj = ObjectRef::new();
+        let obj_builder = ObjectBuilder::default();
+        obj_builder.borrow_mut(self.token_mut()).receive::<usize>();
+        obj_builder
+            .borrow_mut(self.token_mut())
+            .add_symbol(SymbolBuilder::default().offset(0).build().unwrap());
+        let obj = obj_builder.take(self.token_mut()).build()?;
         let pack = function_builder.pack_into(
             &mut self.token,
             FunctionTypeBuilder::default()
@@ -936,24 +945,13 @@ impl<'l> LuaContext<'l> {
                 expr.value_reg(),
             )?;
         }
-        let constants = self.current_function_mut().constants.clone();
-        let offset = ObjectBuilderInner::push_import(
-            &constants,
-            &mut self.token,
-            ObjectBuilderImport::ObjectRef(obj.clone()),
-            RelocationKind::UsizePtrAbsolute,
-            0,
-        );
-        let symbol_index = constants
-            .borrow_mut(self.token_mut())
-            .add_symbol(SymbolBuilder::default().offset(offset).build().unwrap());
         let value_reg = self.alloc_register()?;
         match self.current_function().parent_closure_slot_map.len() {
             0 => {
                 ConstClosure0::emit(
                     &self.current_builder,
                     &mut self.token,
-                    SymbolBuilderRef::new(constants, symbol_index),
+                    SymbolRef::new(obj, 0),
                     &LUA_STATE_REG,
                     &LUA_UP_VALUES_REG,
                     &value_reg,
@@ -963,7 +961,7 @@ impl<'l> LuaContext<'l> {
                 ConstClosure::emit(
                     &self.current_builder,
                     &mut self.token,
-                    SymbolBuilderRef::new(constants, symbol_index),
+                    SymbolRef::new(obj, 0),
                     &LUA_STATE_REG,
                     &LUA_UP_VALUES_REG,
                     &LUA_CLOSURE_REG,

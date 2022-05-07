@@ -77,17 +77,17 @@ pub struct Symbol<T: Clone + Hash + Eq> {
     #[builder(default)]
     usage: HashSet<T>,
 }
-#[derive(Clone, Debug, Hash, PartialEq, Eq, Getters, CopyGetters)]
+#[derive(Clone, Debug, Hash, PartialEq, Eq, Default, Getters, CopyGetters)]
 pub struct SymbolRef {
     #[getset(get = "pub")]
-    object: ObjectRef,
+    pub object: ObjectRef,
     #[getset(get_copy = "pub")]
-    index: usize,
+    pub index: usize,
 }
 
 impl SymbolRef {
-    pub fn new() -> Self {
-        Self { object: ObjectRef::new(), index: 0 }
+    pub fn new(object: ObjectRef, index: usize) -> Self {
+        Self { object, index }
     }
 }
 #[repr(C)]
@@ -390,6 +390,12 @@ pub enum ObjectBuilderImport<'l> {
     ObjectRef(ObjectRef),
     Reflexive,
 }
+
+impl<'l> From<ObjectRef> for ObjectBuilderImport<'l> {
+    fn from(i: ObjectRef) -> Self {
+        Self::ObjectRef(i)
+    }
+}
 impl<'l> Debug for ObjectBuilderImport<'l> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -518,9 +524,11 @@ impl<'b> ObjectBuilder<'b> {
                     }
                 }
                 ObjectBuilderImport::ObjectRef(source) => {
-                    let source = source.lock().unwrap();
-                    let value = source.get_export_ptr(symbol_index);
-                    b1.borrow_mut(token).relocate(relocation_index, (ObjectBuilderImport::Reflexive, symbol_index), value);
+                    let value = {
+                        let source_guard = source.lock().unwrap();
+                        source_guard.get_export_ptr(symbol_index)
+                    };
+                    b1.borrow_mut(token).relocate(relocation_index, (ObjectBuilderImport::ObjectRef(source), symbol_index), value);
                 }
                 ObjectBuilderImport::Reflexive => {
                     let value = b1.borrow(token).get_export_ptr(symbol_index);
@@ -827,14 +835,14 @@ impl<'b> SymbolBuilderRef<'b> {
 
 pub trait MoveIntoObject<'l> {
     type Carrier;
-    fn set(this: Self::Carrier, offset: usize, object_builder: &ObjectBuilder<'l>, token: &mut GhostToken<'l>);
-    fn append(this: Self::Carrier, object_builder: &ObjectBuilder<'l>, token: &mut GhostToken<'l>)
+    fn set(carrier: Self::Carrier, offset: usize, object_builder: &ObjectBuilder<'l>, token: &mut GhostToken<'l>);
+    fn append(carrier: Self::Carrier, object_builder: &ObjectBuilder<'l>, token: &mut GhostToken<'l>)
     where
         Self: Sized,
     {
         let offset = object_builder.borrow(token).len();
         object_builder.borrow_mut(token).receive_slice::<u8>(size_of::<Self>());
-        Self::set(this, offset, object_builder, token)
+        Self::set(carrier, offset, object_builder, token)
     }
 }
 impl ObjectImport {
