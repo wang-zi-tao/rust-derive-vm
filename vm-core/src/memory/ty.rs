@@ -815,6 +815,7 @@ macro_rules! make_reference {
                 Pointer::new(self.0.cast())
             }
         }
+        unsafe impl Send for $name {}
     };
 }
 #[repr(C)]
