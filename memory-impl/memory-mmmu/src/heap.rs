@@ -6,6 +6,7 @@ use crate::{metadata::Metadata, RegistedType};
 use crate::object::Object;
 
 use std::{
+    alloc::Layout,
     mem::{size_of, MaybeUninit},
     ptr::{self, null_mut, NonNull},
 };
@@ -50,7 +51,11 @@ impl SingleTypeHeapRef {
     #[inline(always)]
     pub(crate) unsafe fn new(p: NonNull<[u8]>, layout: TypeLayout, ty: &RegistedType, strategy: AllocationStrategy) -> SingleTypeHeapRef {
         Allocator::new(p.as_non_null_ptr(), layout, strategy);
-        p.cast::<Allocator>().as_mut().init(layout, strategy);
+        let mem = NonNull::slice_from_raw_parts(
+            NonNull::new_unchecked(p.as_non_null_ptr().as_ptr().cast::<u8>().add(Layout::new::<Self>().size())),
+            p.len() - Layout::new::<Self>().size(),
+        );
+        p.cast::<Allocator>().as_mut().init(mem, layout, strategy);
         ty.after_creat_heap(p.len());
         Self(p)
     }
@@ -70,10 +75,12 @@ impl Drop for Allocator {
 }
 impl Allocator {
     #[inline(always)]
-    unsafe fn new(ptr: NonNull<u8>, _layout: TypeLayout, strategy: AllocationStrategy) {
+    unsafe fn new(ptr: NonNull<u8>, layout: TypeLayout, strategy: AllocationStrategy) {
         let kind = match strategy {
-            AllocationStrategy::SmallUnsized => AllocatorKind::Mask(Mask::default()),
-            AllocationStrategy::Small | AllocationStrategy::Large => AllocatorKind::SmallLinkList(LinkedListAllocator::default()),
+            AllocationStrategy::Small if usize::max(layout.align(), layout.size()) * usize::BITS as usize >= HEAP_PAGE_SIZE => {
+                AllocatorKind::Mask(Mask::default())
+            }
+            _ => AllocatorKind::SmallLinkList(LinkedListAllocator::default()),
         };
         let this = Self { kind };
         ptr.cast::<Allocator>().as_ptr().write(this);
@@ -104,10 +111,10 @@ impl Allocator {
     }
 
     #[inline(always)]
-    unsafe fn init(&mut self, layout: TypeLayout, _strategy: AllocationStrategy) {
+    unsafe fn init(&mut self, mem: NonNull<[u8]>, layout: TypeLayout, _strategy: AllocationStrategy) {
         match &mut self.kind {
-            AllocatorKind::SmallLinkList(a) => a.init(layout),
-            AllocatorKind::Mask(a) => a.init(layout),
+            AllocatorKind::SmallLinkList(a) => a.init(mem, layout),
+            AllocatorKind::Mask(a) => a.init(mem, layout),
         }
     }
 
@@ -122,9 +129,12 @@ pub(crate) struct Mask(usize);
 
 impl Mask {
     #[inline(always)]
-    pub unsafe fn init(&mut self, layout: TypeLayout) {
-        let start_offset = (size_of::<AllocatorKind>() + (layout.align() - 1)) & !(layout.align() - 1);
-        let count = (HEAP_SEGMENT_SIZE - start_offset) / Self::cell_size(layout);
+    pub unsafe fn init(&mut self, mem: NonNull<[u8]>, layout: TypeLayout) {
+        let start_addr = mem.as_non_null_ptr().as_ptr() as usize;
+        let start_addr = (start_addr + (layout.align() - 1)) & !(layout.align() - 1);
+        let end_addr = mem.as_non_null_ptr().as_ptr().add(mem.len()) as usize;
+        let end_addr = end_addr & !(layout.align() - 1);
+        let count = (end_addr - start_addr) / Self::cell_size(layout);
         let mask = (-1isize >> (usize::BITS as usize - count)) as usize;
         *self = Self(mask);
     }
@@ -246,12 +256,13 @@ pub(crate) struct LinkedListAllocator {
 }
 impl LinkedListAllocator {
     #[inline(always)]
-    pub unsafe fn init(&mut self, layout: TypeLayout) {
+    pub unsafe fn init(&mut self, mem: NonNull<[u8]>, layout: TypeLayout) {
         let cell_size = Self::cell_size(layout);
-        let end_addr = self.as_ptr() as usize + HeapPage::size();
-        let start_addr = self.as_ptr() as usize + size_of::<Allocator>();
+        let start_addr = mem.as_non_null_ptr().as_ptr() as usize;
         let start_addr = (start_addr + (layout.align() - 1)) & !(layout.align() - 1);
-        let cell_count = (end_addr - start_addr) / cell_size;
+        let end_addr = mem.as_non_null_ptr().as_ptr().add(mem.len()) as usize;
+        let end_addr = end_addr & !(layout.align() - 1);
+        let cell_count = (end_addr - start_addr - Layout::new::<FreeLinkedListNode>().size()) / cell_size;
         let node_ptr = start_addr as *mut FreeLinkedListNode;
         node_ptr.write(FreeLinkedListNode { next: ptr::null_mut::<FreeLinkedListNode>(), available_cell: cell_count });
         *self = LinkedListAllocator { left_cell_count: cell_count, head: node_ptr };
@@ -264,7 +275,7 @@ impl LinkedListAllocator {
 
     #[inline(always)]
     pub unsafe fn alloc<'a>(&mut self, layout: TypeLayout) -> Option<NonNull<u8>> {
-        self.alloc_cell(layout, 0)
+        self.alloc_cell(layout, 1)
     }
 
     #[inline(always)]
@@ -343,53 +354,22 @@ impl Default for LinkedListAllocator {
 }
 impl !Unpin for HeapPage {}
 pub struct HeapPage {
-    padding: MaybeUninit<[u8; HEAP_PAGE_SIZE]>,
+    _padding: MaybeUninit<[u8; HEAP_PAGE_SIZE]>,
 }
 impl Drop for HeapPage {
     fn drop(&mut self) {
         panic!("should not call `drop` on `HeapPage`!")
     }
 }
-impl HeapPage {
-    #[inline(always)]
-    pub fn size() -> usize {
-        HEAP_PAGE_SIZE - size_of::<FreeLinkedListNode>()
-    }
-
-    #[inline(always)]
-    pub unsafe fn from_oop(object: &Object) -> &HeapPage {
-        (((object as *const Object as usize) & (!(HEAP_PAGE_SIZE - 1))) as *mut HeapPage).as_ref().unwrap()
-    }
-
-    #[inline(always)]
-    pub fn as_ptr(&self) -> *const HeapPage {
-        self as *const HeapPage
-    }
-
-    #[inline(always)]
-    pub fn get_mate_data(self: &HeapPage) -> &Metadata {
-        unsafe { ptr::read((self as *const HeapPage as usize / HEAP_PAGE_SIZE * size_of::<*const Metadata>()) as *const *mut Metadata).as_ref().unwrap() }
-    }
-}
+impl HeapPage {}
 pub struct FreeLinkedListNode {
     pub next: *mut FreeLinkedListNode,
     pub available_cell: usize,
 }
 impl FreeLinkedListNode {
     #[inline(always)]
-    unsafe fn try_alloc_on_self(&mut self, size: usize) -> Option<NonNull<u8>> {
-        if self.available_cell < size {
-            self.available_cell -= size;
-            let ptr = self.offset(self.available_cell);
-            Some(ptr)
-        } else {
-            None
-        }
-    }
-
-    #[inline(always)]
     unsafe fn offset(&self, offset: usize) -> NonNull<u8> {
-        NonNull::new_unchecked(NonNull::from(self).as_ptr().add(1).cast::<u8>().add(offset))
+        NonNull::new_unchecked(NonNull::from(self).as_ptr().cast::<u8>().add(offset + Layout::new::<Self>().size()))
     }
 }
 pub const HEAP_SEGMENT_SIZE: usize = 1 << 21;
