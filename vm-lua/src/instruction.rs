@@ -6,9 +6,9 @@ use vm_core::{Direct, MoveIntoObject, ObjectBuilder, Pointer, Slice, TypeDeclara
 
 make_instruction! { ConstValue->fn<const v:LuaValue>()->(o:LuaValue){ entry:{ %o=b::Move<LuaValue::TYPE>(%v); }} }
 make_instruction! { ConstNil->fn()->(o:LuaValue){ entry:{ %o= lua_value::EncodeNil(b::UninitedStruct<Unit::TYPE>()); }} }
-make_instruction! { EncodeBoolean->fn(i:Bool)->(o:LuaValue){ entry:{ %o=lua_value::EncodeBoolean(b::IntExtend<7,0>(%i)); }} }
+make_instruction! { EncodeBoolean->fn(i:Bool)->(o:LuaValue){ entry:{ %o=lua_value::EncodeBoolean(I64Shl(b::IntTruncate<7,0>(%i),7)); }} }
 make_instruction! { ConstTrue->fn()->(o:LuaValue){ entry:{ %o= EncodeBoolean(true); }} }
-make_instruction! { ConstFalse->fn()->(o:LuaValue){ entry:{ %o= EncodeBoolean(true); }} }
+make_instruction! { ConstFalse->fn()->(o:LuaValue){ entry:{ %o= EncodeBoolean(false); }} }
 make_instruction! { ConstZero->fn()->(o:I64){ entry:{ %o=0; }} }
 make_instruction! { ConstOne->fn()->(o:I64){ entry:{ %o=1; }} }
 make_instruction! { ConstM1->fn()->(o:I64){ entry:{ %o=-1; }} }

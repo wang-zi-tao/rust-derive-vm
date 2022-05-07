@@ -839,7 +839,7 @@ impl<'ctx, 'm> LLVMFunctionBuilder<'ctx> {
                     let target_int_type = get_int_type!();
                     let int_type = get_int_type!(1);
                     let arg0 = load_int_operand!(int_type, 0);
-                    store_int_operand!(1, builder.build_int_truncate(arg0, target_int_type, "result"))
+                    store_int_operand!(1, builder.build_int_cast(arg0, target_int_type, "result"))
                 }
 
                 FAdd => float_binary_instruction!(build_float_add),

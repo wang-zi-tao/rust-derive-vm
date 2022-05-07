@@ -1,10 +1,8 @@
-if true then
-  do
-  end
-elseif false then
+if false then
+  a.b = 1
+elseif true then
   do
   end
 else
-  do
-  end
+  a.b = 1
 end
