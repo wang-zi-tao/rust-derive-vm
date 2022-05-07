@@ -202,14 +202,12 @@ impl VirtualMemoryManager {
     }
 
     fn align_size(size: usize) -> usize {
-        let mut align = (size + (MINIMUMALLOCATION_UNIIT_OF_VM - 1)) & !(MINIMUMALLOCATION_UNIIT_OF_VM - 1);
-        align |= align >> 1;
-        align |= align >> 2;
-        align |= align >> 4;
-        align |= align >> 8;
-        align |= align >> 16;
-        align |= align >> 32;
-        (align + 1) * MINIMUMALLOCATION_UNIIT_OF_VM
+        let align = (size + (MINIMUMALLOCATION_UNIIT_OF_VM - 1)) & !(MINIMUMALLOCATION_UNIIT_OF_VM - 1);
+        if align.count_ones() == 1 {
+            align
+        } else {
+            1 << (usize::BITS - align.leading_zeros())
+        }
     }
 }
 const ALLOC_TREE_HEIGH: u32 = usize::trailing_zeros(TOTAL_VM / MINIMUMALLOCATION_UNIIT_OF_VM);
