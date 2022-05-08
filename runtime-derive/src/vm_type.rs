@@ -383,7 +383,7 @@ fn derive_enum(s: &DataEnum, structure: &Structure) -> Result<TokenStream2> {
           #[inline(always)]
           pub fn #read_fn_ident(&mut self)->std::option::Option<<#variant_type as vm_core::TypeDeclaration>::Impl>{
               unsafe {
-                  if #tag_layout_fn_name #ty_generics_trubofish().decode((self as *mut Self).cast()) == #variant_index{
+                  if #tag_layout_fn_name #ty_generics_trubofish().decode((self as *mut Self).cast()) != #variant_index{
                       None
                   }else{
                       let mut value:<#variant_type as vm_core::TypeDeclaration>::Impl = (self as *mut Self).cast::<<#variant_type as vm_core::TypeDeclaration>::Impl>().read();
