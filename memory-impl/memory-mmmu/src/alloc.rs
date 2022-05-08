@@ -13,7 +13,7 @@ use vm_core::{TypeLayout, TypeResource};
 
 use super::heap::{HeapFrameRef, HeapPage, HEAP_SEGMENT_SIZE, PAGES_PRE_SEGMENT};
 use crate::{
-    heap::{AllocationStrategy, SingleTypeHeapRef, HEAP_PAGE_SIZE},
+    heap::{AllocResultInner, AllocationStrategy, SingleTypeHeapRef, HEAP_PAGE_SIZE},
     MemoryMMMU, RegistedType,
 };
 #[derive(Fail, Debug)]
@@ -225,8 +225,12 @@ impl GlobalSingleTypeHeapPool {
             }
         }
         for i in large_heap.allocable.iter().rev() {
-            if let Some(r) = unsafe { i.alloc(layout) } {
-                return Ok(r);
+            if let Some(AllocResultInner { ptr, full }) = unsafe { i.alloc(layout) } {
+                if full {
+                    let heap_seg = large_heap.allocable.pop().unwrap();
+                    large_heap.full.push(heap_seg);
+                }
+                return Ok(ptr);
             }
         }
         Err(NoSpaceLeft(Backtrace::new()))
@@ -296,8 +300,8 @@ pub fn try_alloc<'a>(ty: &RegistedType) -> AllocResult<NonNull<u8>> {
                 let layout = ty.get_layout()?;
                 let pools = this.get_single_type_memory_pools(ty, layout)?;
                 let pool = pools.get_one_available(ty, layout)?;
-                if let Some(oop) = pool.alloc(layout) {
-                    if pool.is_full() {
+                if let Some(AllocResultInner { ptr: oop, full }) = pool.alloc(layout) {
+                    if full {
                         pools.mark_one_full();
                     }
                     return Ok(oop);
@@ -323,8 +327,8 @@ pub fn try_alloc_unsized<'a>(ty: &RegistedType, len: usize) -> AllocResult<NonNu
                 let pools = this.get_single_type_memory_pools(ty, layout)?;
                 loop {
                     let pool = pools.get_one_available(ty, layout)?;
-                    if let Some(oop) = pool.alloc_unsized(layout, len) {
-                        if pool.is_full() {
+                    if let Some(AllocResultInner { ptr: oop, full }) = pool.alloc_unsized(layout, len) {
+                        if full {
                             pools.mark_one_full();
                         }
                         return Ok(oop);

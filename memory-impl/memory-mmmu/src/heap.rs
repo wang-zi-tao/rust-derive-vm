@@ -34,12 +34,12 @@ pub struct Allocator {
 pub struct SingleTypeHeapRef(NonNull<[u8]>);
 impl SingleTypeHeapRef {
     #[inline(always)]
-    pub(crate) unsafe fn alloc(&self, layout: TypeLayout) -> Option<NonNull<u8>> {
+    pub(crate) unsafe fn alloc(&self, layout: TypeLayout) -> AllocResult {
         self.0.as_non_null_ptr().cast::<Allocator>().as_mut().alloc(layout)
     }
 
     #[inline(always)]
-    pub(crate) unsafe fn alloc_unsized(&self, layout: TypeLayout, len: usize) -> Option<NonNull<u8>> {
+    pub(crate) unsafe fn alloc_unsized(&self, layout: TypeLayout, len: usize) -> AllocResult {
         self.0.as_non_null_ptr().cast::<Allocator>().as_mut().alloc_unsized(layout, len)
     }
 
@@ -73,6 +73,16 @@ impl Drop for Allocator {
         panic!("should not call `drop` on `SingleTypeHeap`!")
     }
 }
+pub(crate) struct AllocResultInner {
+    pub(crate) ptr: NonNull<u8>,
+    pub(crate) full: bool,
+}
+impl AllocResultInner {
+    pub(crate) fn new(ptr: NonNull<u8>, full: bool) -> Self {
+        Self { ptr, full }
+    }
+}
+pub(crate) type AllocResult = Option<AllocResultInner>;
 impl Allocator {
     #[inline(always)]
     unsafe fn new(ptr: NonNull<u8>, layout: TypeLayout, strategy: AllocationStrategy) {
@@ -87,7 +97,7 @@ impl Allocator {
     }
 
     #[inline(always)]
-    unsafe fn alloc(&mut self, layout: TypeLayout) -> Option<NonNull<u8>> {
+    unsafe fn alloc(&mut self, layout: TypeLayout) -> AllocResult {
         match &mut self.kind {
             AllocatorKind::SmallLinkList(a) => a.alloc(layout),
             AllocatorKind::Mask(a) => a.alloc(layout),
@@ -95,7 +105,7 @@ impl Allocator {
     }
 
     #[inline(always)]
-    unsafe fn alloc_unsized(&mut self, layout: TypeLayout, len: usize) -> Option<NonNull<u8>> {
+    unsafe fn alloc_unsized(&mut self, layout: TypeLayout, len: usize) -> AllocResult {
         match &mut self.kind {
             AllocatorKind::SmallLinkList(a) => a.alloc_unsized(layout, len),
             AllocatorKind::Mask(a) => a.alloc_unsized(layout, len),
@@ -157,19 +167,20 @@ impl Mask {
     }
 
     #[inline(always)]
-    pub unsafe fn alloc(&mut self, layout: TypeLayout) -> Option<NonNull<u8>> {
+    pub unsafe fn alloc(&mut self, layout: TypeLayout) -> AllocResult {
         if self.0 == 0 {
             None
         } else {
             let cell_num = self.0.trailing_zeros();
             self.0 &= !(1 << cell_num);
             let size = (layout.size() + layout.align() - 1) & !(layout.align() - 1);
-            Some(NonNull::new_unchecked(Self::start_ptr(NonNull::from(self), layout).as_ptr().add(cell_num as usize * size)))
+            let full = self.0 == 0;
+            Some(AllocResultInner::new(NonNull::new_unchecked(Self::start_ptr(NonNull::from(self), layout).as_ptr().add(cell_num as usize * size)), full))
         }
     }
 
     #[inline(always)]
-    pub unsafe fn alloc_unsized(&mut self, layout: TypeLayout, flexible_len: usize) -> Option<NonNull<u8>> {
+    pub unsafe fn alloc_unsized(&mut self, layout: TypeLayout, flexible_len: usize) -> AllocResult {
         if self.0 == 0 {
             None
         } else {
@@ -211,7 +222,8 @@ impl Mask {
                 mask &= mask >> 32;
             };
             let cell_num = mask.trailing_zeros();
-            Some(NonNull::new_unchecked(Self::start_ptr(NonNull::from(self), layout).as_ptr().add(cell_num as usize * cell_size)))
+            let full = self.0 == 0;
+            Some(AllocResultInner::new(NonNull::new_unchecked(Self::start_ptr(NonNull::from(self), layout).as_ptr().add(cell_num as usize * cell_size)), full))
         }
     }
 
@@ -274,7 +286,7 @@ impl LinkedListAllocator {
     }
 
     #[inline(always)]
-    pub unsafe fn alloc<'a>(&mut self, layout: TypeLayout) -> Option<NonNull<u8>> {
+    pub unsafe fn alloc<'a>(&mut self, layout: TypeLayout) -> AllocResult {
         self.alloc_cell(layout, 1)
     }
 
@@ -283,7 +295,7 @@ impl LinkedListAllocator {
         (layout.size() + (layout.align() - 1)) & !(layout.align() - 1)
     }
 
-    pub unsafe fn alloc_unsized<'a>(&mut self, layout: TypeLayout, flexible_len: usize) -> Option<NonNull<u8>> {
+    pub unsafe fn alloc_unsized<'a>(&mut self, layout: TypeLayout, flexible_len: usize) -> AllocResult {
         let size = layout.size() + layout.flexible_size() * flexible_len;
         let size = (size + layout.align() - 1) & !(layout.align() - 1);
         let cell_count = size / Self::cell_size(layout);
@@ -291,7 +303,7 @@ impl LinkedListAllocator {
     }
 
     #[inline(always)]
-    pub unsafe fn alloc_cell<'a>(&mut self, layout: TypeLayout, cell_count: usize) -> Option<NonNull<u8>> {
+    pub unsafe fn alloc_cell<'a>(&mut self, layout: TypeLayout, cell_count: usize) -> AllocResult {
         let node_handle = &mut self.head;
         if self.left_cell_count < cell_count {
             return None;
@@ -302,13 +314,13 @@ impl LinkedListAllocator {
                     let ptr = NonNull::from(&node).cast();
                     *node_handle = node.next;
                     self.left_cell_count -= cell_count;
-                    return Some(ptr);
+                    return Some(AllocResultInner::new(ptr, self.left_cell_count == 0));
                 } else if node.available_cell > cell_count {
                     node.available_cell -= cell_count;
                     let cell_size = Self::cell_size(layout);
                     let ptr = node.offset(node.available_cell * cell_size).cast();
                     self.left_cell_count -= cell_count;
-                    return Some(ptr);
+                    return Some(AllocResultInner::new(ptr, self.left_cell_count == 0));
                 }
             } else {
                 return None;
