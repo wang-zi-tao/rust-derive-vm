@@ -1,4 +1,5 @@
 use super::mem::*;
+use log::debug;
 use runtime::instructions::{bootstrap::{self as b, CallState, GetLength, MakeSlice, Read, SetState, Write}, Instruction};
 use runtime_extra::{self as e, instructions::*, ty::*};
 use std::{cell::UnsafeCell, marker::PhantomData, mem::MaybeUninit};
@@ -403,7 +404,7 @@ make_instruction! { BuildTable->fn<const shape:LuaShapeReference,const slots:Usi
 }} }
 pub unsafe fn extend_to_buffer(buffer: &mut Vec<u8>, mut i: Direct<LuaValue>) -> bool {
     if let Some(v) = i.read_integer() {
-        let v = (v.0 << 4) >> 4;
+        let v = (v.0) >> 4;
         buffer.extend(v.to_string().as_bytes());
     } else if let Some(v) = i.read_big_int() {
         let v = v.as_ref().get_value().0;
@@ -417,6 +418,14 @@ pub unsafe fn extend_to_buffer(buffer: &mut Vec<u8>, mut i: Direct<LuaValue>) ->
         buffer.extend(v.to_string().as_bytes());
     } else if let Some(v) = i.read_string() {
         buffer.extend(v.as_ref().ref_data().as_slice().iter().map(|d| d.0));
+    } else if let Some(v) = i.read_nil() {
+        buffer.extend(b"nil");
+    } else if let Some(v) = i.read_table() {
+        buffer.extend(format!("table: {:p}", v.as_ptr()).bytes());
+    } else if let Some(v) = i.read_function() {
+        buffer.extend(format!("function: {:p}", v.as_ptr()).bytes());
+    } else if let Some(v) = i.read_closure() {
+        buffer.extend(format!("function: {:p}", v.as_ptr()).bytes());
     } else {
         return false;
     }
@@ -1142,16 +1151,17 @@ make_instruction! {
           %table=b::Deref<LuaTableReference::TYPE>(lua_value::DecodeTableUnchecked(%obj));
           %shape=b::Deref<LuaShapeReference::TYPE>(lua_table::ReadShape(%table));
           %slot=GetSlot(%shape,%key);
-          if I64Le(%slot,0) %not_found %found;},
+          if I64Eq(%slot,-1) %not_found %found;},
         found:{
+            %v=Read<LuaValue::TYPE>(LocateSlot(%table,b::IntTruncate<12,7>(%slot)));
+            if lua_value::IsNil(%v) %not_found %finish; },
+        finish:{
             inline_cache_line::WriteKey(%cache,%key);
             inline_cache_line::WriteShape(%cache,EncodeSomeShapeReference(b::Clone<LuaShapeReference::TYPE>(lua_table::ReadShape(%table))));
             inline_cache_line::WriteSlot(%cache,b::IntTruncate<6,7>(%slot));
             inline_cache_line::WriteInvalid(%cache,EncodeSomeBoolReference(b::Clone<BoolReference::TYPE>(lua_shape::ReadInvalid(%shape))));
             inline_cache_line::WriteTable(%cache,EncodeSomeTableReference(lua_value::DecodeTableUnchecked(%obj)));
-            %v=Read<LuaValue::TYPE>(LocateSlot(%table,b::IntTruncate<12,7>(%slot)));
-            if lua_value::IsNil(%v) %not_found %finish; },
-        finish:{ %value=b::Move<LuaValue::TYPE>(%v); },
+            %value=b::Move<LuaValue::TYPE>(%v); },
         not_found:{
             %index=GetMetaValueIndex(%obj);
             if lua_value::IsTable(%index) %use_index_table %not_index_table; },

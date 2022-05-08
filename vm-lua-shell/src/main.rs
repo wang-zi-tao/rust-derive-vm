@@ -39,3 +39,24 @@ fn main() -> Fallible<()> {
     }
     Ok(())
 }
+#[cfg(test)]
+mod tests {
+    use failure::Fallible;
+    use log::{error, info, trace};
+
+    #[test]
+    fn run_lua_script() -> Fallible<()> {
+        let code = "print('hello world')";
+        env_logger::init();
+        vm_lua::set_signal_handler();
+        let lua_state = vm_lua::new_state()?;
+        match vm_lua::run_code(lua_state, &code) {
+            Ok(_) => {}
+            Err(e) => {
+                error!("{}", e);
+                trace!("{:?}", e);
+            }
+        };
+        Ok(())
+    }
+}

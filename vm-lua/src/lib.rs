@@ -149,7 +149,8 @@ pub fn new_function(state: LuaStateReference, native_function: &LuaFunctionRustT
         let mut function_ref = function_ptr.as_ref_mut();
         function_ref.set_state(state.as_pointer());
         function_ref.set_function(NonNull::from(native_function).cast());
-        Ok(LuaValueImpl::encode_function(function.as_pointer()))
+        let lua_value = LuaValueImpl::encode_function(function.as_pointer());
+        Ok(lua_value)
     }
 }
 pub fn new_shape(metas: LuaMetaFunctionsReference, is_owned: bool) -> Fallible<LuaShapeReference> {
