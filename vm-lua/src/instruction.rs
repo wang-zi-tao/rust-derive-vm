@@ -401,7 +401,7 @@ make_instruction! { BuildTable->fn<const shape:LuaShapeReference,const slots:Usi
     lua_table::WriteShape(%new_table_ptr,%shape);
     %o=lua_value::EncodeTable(%new_table);
 }} }
-unsafe fn extend_to_buffer(buffer: &mut Vec<u8>, mut i: Direct<LuaValue>) -> bool {
+pub unsafe fn extend_to_buffer(buffer: &mut Vec<u8>, mut i: Direct<LuaValue>) -> bool {
     if let Some(v) = i.read_integer() {
         let v = (v.0 << 4) >> 4;
         buffer.extend(v.to_string().as_bytes());
@@ -432,16 +432,7 @@ pub unsafe extern "C" fn __vm_lua_lib_raw_concat(
     if !extend_to_buffer(&mut buffer, i1) || !extend_to_buffer(&mut buffer, i2) {
         return Direct(LuaValueImpl::encode_nil(()));
     }
-    let mut string = Pointer::<LuaString>::new(LuaStringReference::get().unwrap().alloc_unsized(buffer.len()).unwrap());
-    string.as_ref_mut().set_lua_state(state.0);
-    string.as_ref_mut().set_pooled(None);
-    string
-        .as_ref()
-        .ref_data()
-        .as_ptr_mut()
-        .as_mut_ptr()
-        .copy_from_nonoverlapping(buffer.as_ptr().cast(), buffer.len());
-    Direct(LuaValueImpl::encode_string(string))
+    Direct(crate::new_string(state.0, &*buffer).unwrap())
 }
 type GetMetaValueConcat = GetMetaValue<lua_meta_functions::ReadConcat>;
 make_instruction! {

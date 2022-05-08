@@ -256,7 +256,9 @@ pub const LUA_CLOSURE_REG: Register<LuaClosureReference> = Register::new_const(2
 pub const LUA_UP_VALUES_REG: Register<LuaUpValueReference> = Register::new_const(3);
 pub const LUA_PIN_REG_COUNT: u16 = 4;
 
-pub(crate) fn new_ctx<'l>(token: ghost_cell::GhostToken<'l>) -> LuaContext<'l> { LuaContext::new(token) }
+pub(crate) fn new_ctx<'l>(token: ghost_cell::GhostToken<'l>, lua_state: LuaStateReference) -> LuaContext<'l> {
+    LuaContext::new(token, lua_state)
+}
 pub struct LuaContext<'l> {
     pub(crate) token: GhostToken<'l>,
     pub(crate) packs: Vec<FunctionPack<LuaInstructionSet>>,
@@ -266,9 +268,10 @@ pub struct LuaContext<'l> {
     pub(crate) current_block: LuaBlockRef<'l>,
     pub(crate) current_builder: BlockBuilder<'l, LuaInstructionSet>,
     pub(crate) shape_map: HashMap<(Vec<String>, usize), LuaShapeReference>,
+    pub(crate) lua_state: LuaStateReference,
 }
 impl<'l> LuaContext<'l> {
-    pub fn new(token: GhostToken<'l>) -> Self {
+    pub fn new(token: GhostToken<'l>, lua_state: LuaStateReference) -> Self {
         let new_function = LuaFunctionBuilder::new();
         let new_scopt = new_function.current_scopt.clone();
         let new_block = new_function.current_block.clone();
@@ -283,6 +286,7 @@ impl<'l> LuaContext<'l> {
             current_builder: new_builder,
             shape_map: Default::default(),
             packs: Default::default(),
+            lua_state,
         };
         this
     }
@@ -472,19 +476,7 @@ impl<'l> LuaContext<'l> {
         }
     }
     pub fn const_string_value(&mut self, s: String) -> Fallible<LuaValueImpl> {
-        let buffer = s.as_bytes();
-        unsafe {
-            let mut string =
-                Pointer::<LuaString>::new(LuaStringReference::get().unwrap().alloc_unsized(buffer.len()).unwrap());
-            string.as_ref_mut().set_pooled(None);
-            string
-                .as_ref()
-                .ref_data()
-                .as_ptr_mut()
-                .as_mut_ptr()
-                .copy_from_nonoverlapping(buffer.as_ptr().cast(), buffer.len());
-            Ok(LuaValueImpl::encode_string(string))
-        }
+        crate::new_string(self.lua_state.as_pointer(), s.as_bytes())
     }
     pub fn const_string(&mut self, string: String) -> Fallible<LuaExprRef<'l>> {
         let reg = self.alloc_register()?;

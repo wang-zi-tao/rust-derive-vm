@@ -5,12 +5,17 @@ use vm_core::{make_reference, Aligned, Direct, FunctionType, MoveIntoObject, Nat
 
 use runtime_extra::ty::*;
 use std::cell::UnsafeCell;
+use std::collections::HashSet;
+use std::hash::Hasher;
 use std::marker::PhantomData;
+use std::ops::Deref;
+use std::ptr::NonNull;
 use std::{collections::HashMap, hash::Hash};
 use util::{inline_const, CowArc, CowSlice, PooledStr};
 #[derive(TypeDeclaration)]
 #[make_type(make_instruction)]
 pub struct LuaState {
+    pub strings: Native<HashSet<LuaStringNativeReference>>,
     pub string_meta_functions: LuaMetaFunctionsReference,
     pub table_shape: LuaShapeReference,
     pub global: LuaTableReference,
@@ -66,11 +71,30 @@ pub enum Lifetime {
 pub struct LuaString {
     pub align: Aligned<16>,
     pub lua_state: LuaStateReference,
-    pub pooled: Native<Option<PooledStr>>,
     #[make_type(unsized)]
     pub data: UnsizedArray<U8>,
 }
 make_reference!(LuaStringReference, LuaString, TypeResourceImpl);
+pub struct LuaStringNativeReference(pub LuaStringReference);
+impl Hash for LuaStringNativeReference {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        unsafe {
+            self.0.as_pointer().as_ref_mut().ref_data().as_slice().hash(state);
+        }
+    }
+}
+impl PartialEq for LuaStringNativeReference {
+    fn eq(&self, other: &Self) -> bool { self.0.as_non_null() == other.0.as_non_null() }
+}
+impl Eq for LuaStringNativeReference {}
+impl std::borrow::Borrow<[u8]> for LuaStringNativeReference {
+    fn borrow(&self) -> &[u8] {
+        unsafe {
+            let ptr = self.0.as_pointer().as_ref().ref_data().as_non_null();
+            NonNull::slice_from_raw_parts(ptr.as_non_null_ptr().cast(), ptr.len()).as_ref()
+        }
+    }
+}
 #[derive(TypeDeclaration)]
 #[make_type(make_instruction)]
 pub struct LuaFunction {
@@ -239,8 +263,9 @@ impl TypeDeclaration for LuaClosureFunctionType {
             va_arg: Some(LuaValue::TYPE),
     })));
 }
-pub type LuaFunctionRustType = fn(state: LuaStateReference, args: &[LuaValueImpl]) -> Pointer<UnsizedArray<LuaValue>>;
-pub type LuaClosureRustType = fn(
+pub type LuaFunctionRustType =
+    extern "C" fn(state: LuaStateReference, args: &[LuaValueImpl]) -> Pointer<UnsizedArray<LuaValue>>;
+pub type LuaClosureRustType = extern "C" fn(
     state: LuaStateReference,
     closure: LuaClosureReference,
     args: &[LuaValueImpl],

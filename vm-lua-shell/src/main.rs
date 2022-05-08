@@ -6,6 +6,7 @@ use vm_lua::LUA_INTERPRETER;
 
 fn main() -> Fallible<()> {
     env_logger::init();
+    vm_lua::set_signal_handler();
     let lua_state = vm_lua::new_state()?;
     let _ = &*LUA_INTERPRETER;
     info!("wangzi lua vm v1.0.0");

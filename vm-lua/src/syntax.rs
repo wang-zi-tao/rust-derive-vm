@@ -1,17 +1,17 @@
 use super::builder::*;
 use super::ir::LuaInstructionSet;
 use super::lua_lexical::LuaLexical;
-use crate::mem::LuaState;
+use crate::mem::{LuaState, LuaStateReference};
 use failure::Fallible;
 use ghost_cell::GhostToken;
 use lexical_derive::token as t;
 use runtime::code::FunctionPack;
 use std::{collections::HashMap, rc::Rc};
 use syntax_derive::{lalr1_analyser, lr1_analyser, recursive_predictive_analysis};
-pub fn parse(source: Vec<LuaLexical>) -> Fallible<Vec<FunctionPack<LuaInstructionSet>>> {
+pub fn parse(lua_state: LuaStateReference, source: Vec<LuaLexical>) -> Fallible<Vec<FunctionPack<LuaInstructionSet>>> {
     use super::{builder::*, ir::*};
     GhostToken::new(|token| {
-        let mut ctx = new_ctx(token);
+        let mut ctx = new_ctx(token, lua_state);
         macro_rules! const_value {
             ($Instruction:ident) => {
                 ctx.emit_const_value($Instruction::emit)
