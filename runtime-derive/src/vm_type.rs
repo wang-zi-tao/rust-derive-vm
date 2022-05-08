@@ -646,12 +646,12 @@ fn derive_fields(fields: &Fields, structure: &Structure, name: Ident, attr: Opti
         }
         if let Some(mask) = field_attr.mask.as_ref() {
             let mask = mask.to_usize();
-            setter_impl = quote!((#setter_impl & #mask)|(!mask & ptr.add(Self::#layout_of.size()).cast::<usize>::().read()));
+            setter_impl = quote!((#setter_impl & #mask)|(!mask & ptr.add(Self::#layout_of.offset()).cast::<usize>::().read()));
         }
         if field_attr.bit_offset.is_some() || field_attr.mask.is_some() {
             setter_impl = quote! {ptr.cast::<u8>().add(Self::#layout_of.offset()).cast::<usize>().write(#setter_impl)};
         } else {
-            setter_impl = quote! {ptr.cast::<u8>().add(Self::#layout_of.size()).cast::<<#ty as vm_core::TypeDeclaration>::Impl>().write(#setter_impl)};
+            setter_impl = quote! {ptr.cast::<u8>().add(Self::#layout_of.offset()).cast::<<#ty as vm_core::TypeDeclaration>::Impl>().write(#setter_impl)};
         }
         let get_ref_impl = if !is_compose && field_attr.bit_offset.is_none() || field_attr.mask.is_none() {
             Some(quote! {
@@ -678,17 +678,6 @@ fn derive_fields(fields: &Fields, structure: &Structure, name: Ident, attr: Opti
               }
             })
         };
-        fields_derive.push(quote! {
-          #vis const #layout_of:vm_core::StructLayoutBuilder=#struct_layout_builder;
-          #get_ref_impl
-          #assert_size
-          #[inline(always)]
-          #vis fn #getter(&self)-><#ty as vm_core::TypeDeclaration>::Impl{
-            let ptr=self as *const Self;
-            unsafe{#getter_impl}
-          }
-          #setter_fn
-        });
         if is_compose {
             let bit_offset = field_attr.bit_offset.as_ref().map(|n| n.get()).unwrap_or(0);
             let mask = field_attr.mask.as_ref().map(|m| m.to_usize()).unwrap_or(usize::MAX);
@@ -700,6 +689,17 @@ fn derive_fields(fields: &Fields, structure: &Structure, name: Ident, attr: Opti
               #struct_layout_builder.extend(<#ty as vm_core::TypeDeclaration>::LAYOUT)
             };
         }
+        fields_derive.push(quote! {
+          #vis const #layout_of:vm_core::StructLayoutBuilder=#struct_layout_builder;
+          #get_ref_impl
+          #assert_size
+          #[inline(always)]
+          #vis fn #getter(&self)-><#ty as vm_core::TypeDeclaration>::Impl{
+            let ptr=self as *const Self;
+            unsafe{#getter_impl}
+          }
+          #setter_fn
+        });
         if !is_unsized && !field_attr.is_unsized && struct_attr.make_instruction {
             let ident_name_in_camel_case = util::to_camel_case(&ident.to_string());
             let get_field = format_ident!("Get{}", ident_name_in_camel_case, span = ident.span());

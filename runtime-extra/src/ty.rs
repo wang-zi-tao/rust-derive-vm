@@ -5,7 +5,35 @@ use util::CowArc;
 use vm_core::{FloatKind, IntKind, MoveIntoObject, ObjectBuilder, Pointer, Tuple, Type, TypeDeclaration, TypeLayout};
 
 macro_rules! wrap_type {
-    ($name:ident,$rust_type:ty,$ty:expr) => {
+    (I,$name:ident,$rust_type:ty,$ty:expr) => {
+        #[derive(Clone, Copy, Hash, PartialEq, Eq, PartialOrd, Ord)]
+        #[repr(C)]
+        pub struct $name(pub $rust_type);
+        impl $name {
+            pub fn get(&self) -> $rust_type {
+                self.0
+            }
+        }
+        impl TypeDeclaration for $name {
+            type Impl = Self;
+
+            const LAYOUT: TypeLayout = TypeLayout::of::<$rust_type>();
+            const TYPE: Type = $ty;
+        }
+        impl $name {
+            pub const ALIGN: usize = align_of::<Self>();
+            pub const SIZE: usize = size_of::<Self>();
+            pub const TYPE: Type = $ty;
+        }
+        impl<'l> MoveIntoObject<'l> for $name {
+            type Carrier = Self;
+
+            fn set(this: Self, offset: usize, object_builder: &ObjectBuilder<'l>, token: &mut GhostToken<'l>) {
+                object_builder.borrow_mut(token).receive_at(offset).write(this.0);
+            }
+        }
+    };
+    (F,$name:ident,$rust_type:ty,$ty:expr) => {
         #[derive(Clone, Copy, PartialEq, PartialOrd)]
         #[repr(C)]
         pub struct $name(pub $rust_type);
@@ -35,11 +63,11 @@ macro_rules! wrap_type {
     };
 }
 
-wrap_type!(Unit, (), Type::Tuple(Tuple::Normal(CowArc::Ref(&[]))));
+wrap_type!(I, Unit, (), Type::Tuple(Tuple::Normal(CowArc::Ref(&[]))));
 
 macro_rules! declare_int_type {
     ($name:ident,$int_kind:ident,$rust_type:ident) => {
-        wrap_type!($name, $rust_type, Type::Int(IntKind::$int_kind));
+        wrap_type!(I, $name, $rust_type, Type::Int(IntKind::$int_kind));
     };
 }
 declare_int_type!(Bool, Bool, bool);
@@ -56,7 +84,7 @@ declare_int_type!(Isize, Isize, isize);
 
 macro_rules! declare_float_type {
     ($name:ident,$float_kind:ident,$rust_type:ident) => {
-        wrap_type!($name, $rust_type, Type::Float(FloatKind::$float_kind));
+        wrap_type!(F, $name, $rust_type, Type::Float(FloatKind::$float_kind));
     };
 }
 declare_float_type!(F32, F32, f32);

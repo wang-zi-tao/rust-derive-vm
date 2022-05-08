@@ -524,7 +524,7 @@ impl Type {
         })
     }
 }
-#[derive(Clone, Copy, Builder)]
+#[derive(Clone, Copy, Builder, Debug)]
 pub struct TypeLayout {
     size: usize,
     align: usize,
@@ -574,8 +574,8 @@ impl TypeLayout {
 
     pub const fn repeat(&self, count: usize) -> Self {
         assert!(self.flexible_size == 0);
-        let element_size = self.size.wrapping_add(self.align.wrapping_sub(1)) & !(self.align.wrapping_sub(1));
-        Self { size: element_size * count, tire: if self.tire > 1 { self.tire } else { 1 }, ..*self }
+        let size = self.into_flexible_array().flexible_size();
+        Self { size: size * count, tire: self.tire, ..*self }
     }
 
     pub const fn builder(&self) -> StructLayoutBuilder {
@@ -612,15 +612,10 @@ impl TypeLayout {
     }
 
     pub const fn into_flexible_array(&self) -> TypeLayout {
-        Self {
-            flexible_size: (self.size + (self.align - 1)) & !(self.align - 1),
-            align: self.align,
-            size: size_of::<usize>(),
-            tire: if self.tire > 1 { self.tire } else { 1 },
-        }
+        Self { flexible_size: (self.size + (self.align - 1)) & !(self.align - 1), align: self.align, size: size_of::<usize>(), tire: self.tire }
     }
 }
-#[derive(Clone, Copy, Builder)]
+#[derive(Clone, Copy, Builder, Debug)]
 pub struct StructLayoutBuilder {
     pub offset: usize,
     pub tire: usize,
@@ -639,7 +634,7 @@ impl StructLayoutBuilder {
     }
 
     pub const fn extend(&self, other: TypeLayout) -> Self {
-        let offset = self.turple_size.wrapping_add(self.align.wrapping_sub(1)) & !(other.align.wrapping_sub(1));
+        let offset = self.turple_size.wrapping_add(other.align.wrapping_sub(1)) & !(other.align.wrapping_sub(1));
         assert!(self.flexible_size == 0);
         Self {
             offset,
@@ -843,6 +838,7 @@ impl<T: TypeDeclaration> TypeDeclaration for Direct<T> {
 }
 
 #[repr(C)]
+#[derive(Copy)]
 pub struct Pointer<T: TypeDeclaration>(NonNull<u8>, PhantomData<T::Impl>);
 
 impl<T: TypeDeclaration> Clone for Pointer<T> {
@@ -860,8 +856,8 @@ impl<'l, T: TypeDeclaration> MoveIntoObject<'l> for Pointer<T> {
 }
 
 impl<T: TypeDeclaration> Pointer<T> {
-    pub fn new(ptr: NonNull<u8>) -> Self {
-        Self(ptr, PhantomData)
+    pub const fn new(ptr: NonNull<T::Impl>) -> Self {
+        Self(ptr.cast(), PhantomData)
     }
 
     pub fn as_non_null(&self) -> NonNull<T::Impl> {
@@ -929,8 +925,16 @@ unsafe impl<T: TypeDeclaration> Send for UnsizedArray<T> {}
 unsafe impl<T: TypeDeclaration> Sync for UnsizedArray<T> {}
 
 impl<T: TypeDeclaration> UnsizedArray<T> {
+    pub const fn empty() -> Self {
+        Self(0, UnsafeCell::new(PhantomData))
+    }
+
     pub fn len(&self) -> usize {
         self.0
+    }
+
+    pub unsafe fn set_len(&mut self, len: usize) {
+        self.0 = len;
     }
 
     pub fn as_non_null(&self) -> NonNull<[T::Impl]> {

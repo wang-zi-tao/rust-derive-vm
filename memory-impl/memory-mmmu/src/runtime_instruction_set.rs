@@ -36,7 +36,7 @@ pub unsafe extern "C" fn __memory_mmmu_lib_instruction_set_alloc_in_non_gc_heap(
     let layout = ty.get_layout().unwrap();
     assert!(layout.flexible_size() == 0);
     let ptr = std::alloc::alloc(Layout::from_size_align_unchecked(layout.size(), layout.align()));
-    Pointer::new(NonNull::new_unchecked(ptr))
+    Pointer::new(NonNull::new_unchecked(ptr).cast())
 }
 #[make_native_function(NonGCAllocUnsized)]
 pub unsafe extern "C" fn __memory_mmmu_lib_instruction_set_alloc_unsized_in_non_gc_heap(type_resource: Pointer<U8>, len: Usize) -> Pointer<U8> {
@@ -44,7 +44,7 @@ pub unsafe extern "C" fn __memory_mmmu_lib_instruction_set_alloc_unsized_in_non_
     let layout = ty.get_layout().unwrap();
     assert!(layout.flexible_size() != 0);
     let ptr = std::alloc::alloc(Layout::from_size_align_unchecked(layout.size() + layout.flexible_size() * len.0, layout.align()));
-    Pointer::new(NonNull::new_unchecked(ptr))
+    Pointer::new(NonNull::new_unchecked(ptr).cast())
 }
 #[make_native_function(NonGCFree)]
 pub unsafe extern "C" fn __memory_mmmu_lib_instruction_set_free_in_non_gc_heap(type_resource: Pointer<U8>, ptr: Pointer<U8>) {
