@@ -319,6 +319,10 @@ make_instruction! {
 pub extern "C" fn __vm_lua_lib_throw_error() {
     panic!("lua throw error");
 }
+#[make_native_function(IllegalInstruction)]
+pub extern "C" fn __vm_lua_lib_illegal_instruction() {
+    panic!("illegal instruction 0");
+}
 #[derive(Instruction)]
 #[instruction(GetMetaValue->fn(v:LuaValue)->(o:LuaValue){
         entry:{ if lua_value::IsTable(%v) %table %not_table; },
@@ -342,7 +346,7 @@ make_instruction! { I64ToValue->fn(i:I64)->(v:LuaValue){
 } }
 make_instruction! { GetIntegerValue->fn(value:LuaValue)->(int:I64){
     entry:{ if lua_value::IsInteger(%value) %small %large; },
-    small:{ %int = lua_value::DecodeIntegerUnchecked(%value); },
+    small:{ %int = I64Shr(lua_value::DecodeIntegerUnchecked(%value),4); },
     large:{ %int = lua_i64::ReadValue(b::Deref<LuaI64Reference::TYPE>(lua_value::DecodeBigIntUnchecked(%value))); }
 } }
 make_instruction! {
@@ -370,7 +374,9 @@ make_instruction! {IsFloat->fn(i:LuaValue)->(o:Bool){entry:{
 }}}
 make_instruction! { GetFloatValue->fn(value:LuaValue)->(float:F64){
     entry:{ if lua_value::IsFloat(%value) %small %large; },
-    small:{ %float = I64AsF64(I64Shr(lua_value::DecodeIntegerUnchecked(%value),4)); },
+    small:{
+        %i = lua_value::DecodeFloatUnchecked(%value);
+        %float = I64AsF64(I64Or(I64And(%i,I64Not(0x7fff_ffff_ffff_ffff)),I64And(I64Shr(I64Shl(I64And(%i,0x7fff_ffff_ffff_ffff),1),5),0x7fff_ffff_ffff_ffff))); },
     large:{ %float = lua_f64::ReadValue(b::Deref<LuaF64Reference::TYPE>(lua_value::DecodeBigFloatUnchecked(%value))); }
 } }
 make_instruction! {ToFloat->fn(i:LuaValue)->(o:F64){
@@ -420,6 +426,9 @@ pub unsafe fn extend_to_buffer(buffer: &mut Vec<u8>, mut i: Direct<LuaValue>) ->
         buffer.extend(v.as_ref().ref_data().as_slice().iter().map(|d| d.0));
     } else if let Some(v) = i.read_nil() {
         buffer.extend(b"nil");
+    } else if let Some(v) = i.read_boolean() {
+        let v = v.0 != 0;
+        buffer.extend(v.to_string().as_bytes());
     } else if let Some(v) = i.read_table() {
         buffer.extend(format!("table: {:p}", v.as_ptr()).bytes());
     } else if let Some(v) = i.read_function() {
@@ -723,7 +732,7 @@ pub struct FlipBinaryInstruction<
             entry:{
                 %i1_tag=lua_value::GetTag(%i1);
                 %i2_tag=lua_value::GetTag(%i2);
-                if IsizeLe(b::IntTruncate<11,12>(UsizeOr(%i1_tag,%i2_tag)),b::IntTruncate<11,7>(4)) %double_number %not_double_number; },
+                if IsizeLt(b::IntTruncate<11,12>(UsizeOr(%i1_tag,%i2_tag)),b::IntTruncate<11,7>(4)) %double_number %not_double_number; },
             double_number:{ if UsizeLt(UsizeOr(%i1_tag,%i2_tag),b::IntTruncate<12,7>(2)) %double_integer %not_double_integer; },
             double_integer:{
                 %i1_integer_value=GetIntegerValue(%i1);
@@ -809,7 +818,7 @@ pub struct NegationBinaryInstruction<
             entry:{
                 %i1_tag=lua_value::GetTag(%i1);
                 %i2_tag=lua_value::GetTag(%i2);
-                if IsizeLe(b::IntTruncate<11,12>(UsizeOr(%i1_tag,%i2_tag)),b::IntTruncate<11,7>(4)) %double_number %not_double_number; },
+                if UsizeLt(UsizeOr(%i1_tag,%i2_tag),b::IntTruncate<12,7>(4)) %double_number %not_double_number; },
             double_number:{ if UsizeLt(UsizeOr(%i1_tag,%i2_tag),b::IntTruncate<12,7>(2)) %double_integer %not_double_integer; },
             double_integer:{
                 %i1_integer_value=GetIntegerValue(%i1);
@@ -937,9 +946,10 @@ pub type OptionLuaMetaFunctionsRefIsSome = nullable_option::IsSome<LuaMetaFuncti
     BinaryIntegerInstruction->{(i1:LuaValue,i2:LuaValue)->(i2:LuaValue){
         Init:{
             entry:{
+                ThrowError();
                 %i1_tag=lua_value::GetTag(%i1);
                 %i2_tag=lua_value::GetTag(%i2);
-                if IsizeLe(b::IntTruncate<11,12>(UsizeOr(%i1_tag,%i2_tag)),b::IntTruncate<11,7>(4)) %double_number %not_double_number; },
+                if IsizeLt(b::IntTruncate<11,12>(UsizeOr(%i1_tag,%i2_tag)),b::IntTruncate<11,7>(4)) %double_number %not_double_number; },
             double_number:{
                 %i1_integer_value=GetIntegerValue(%i1);
                 %i2_integer_value=GetIntegerValue(%i2);

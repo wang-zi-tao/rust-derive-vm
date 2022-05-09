@@ -42,6 +42,8 @@ pub enum InstructionError {
     NotSupported(),
     #[fail(display = "not type is unknown")]
     TypeIsUnnkown(),
+    #[fail(display = "constant \"state\" not found")]
+    ConstantStateNotFound(),
     #[fail(display = "Argument was not found in index {}", _0)]
     ArgumentIndexOutOfRange(usize),
     #[fail(display = "Generic was not found in index {}", _0)]
@@ -634,6 +636,7 @@ pub(crate) struct LLVMFunctionBuilder<'ctx> {
     deploy_table: Option<PointerValue<'ctx>>,
     function: FunctionValue<'ctx>,
     instruction_type: InstructionType,
+    current_instruction: InstructionType,
     state_stack: Vec<StateInstructionBuilder<'ctx>>,
     registers: Option<PointerValue<'ctx>>,
     termined: bool,
@@ -1579,8 +1582,12 @@ impl<'ctx, 'm> LLVMFunctionBuilder<'ctx> {
             let mut operands_map = HashMap::<String, Operand>::from_iter(
                 complex_instruction.metadata.operands.iter().map(|operand_metadata| (operand_metadata.name.to_string())).zip(operands.iter().cloned()),
             );
+            let generics_metadatas = match self.current_instruction {
+                InstructionType::Stateful(_) => complex_instruction.metadata.generics.split_last().ok_or_else(|| ConstantStateNotFound())?.1,
+                _ => &*complex_instruction.metadata.generics,
+            };
             let constants_map: HashMap<String, Constant<'ctx>> = HashMap::<String, Constant<'ctx>>::from_iter(
-                complex_instruction.metadata.generics.iter().map(|constant: &GenericsMetadata| (constant.name.to_string())).zip(constants.iter().cloned()),
+                generics_metadatas.iter().map(|constant: &GenericsMetadata| (constant.name.to_string())).zip(constants.iter().cloned()),
             );
             let mut basic_blocks = HashMap::<Cow<str>, LLVMBasicBlockBuilderRef<'ctx>>::new();
             for (_block_index, basic_block) in complex_instruction.blocks.iter().enumerate() {
@@ -1807,6 +1814,7 @@ impl<'ctx, 'm> LLVMFunctionBuilder<'ctx> {
                                     ip_phi: self.ip_phi,
                                     exit: self.exit,
                                     returned: self.returned,
+                                    current_instruction: instruction_type.clone(),
                                 };
 
                                 instruction_builder.generate_instruction_core(instruction_type, &*new_constants, &mut *new_operands).map_err(|e| {
@@ -2184,7 +2192,11 @@ impl<'ctx, 'm> LLVMFunctionBuilder<'ctx> {
         let usize_type = context.custom_width_int_type(usize::BITS);
         let mut constant_offset_list = Vec::new();
         let mut constant_layout = Layout::new::<()>();
-        for constant_metadata in &*metadata.generics {
+        let generics_metadatas = match &state_instruction_type {
+            Some(_) => metadata.generics.split_last().ok_or_else(|| ConstantStateNotFound())?.1,
+            None => &*metadata.generics,
+        };
+        for constant_metadata in generics_metadatas {
             let layout = &mut constant_layout;
             let value_type = get_constant_type(constant_metadata, context)?;
             let (new_layout, offset) = layout.extend(value_type.get_layout()?.into())?;
@@ -2197,7 +2209,7 @@ impl<'ctx, 'm> LLVMFunctionBuilder<'ctx> {
             constant_layout = new_layout;
             operand_offset_list.push(offset);
         }
-        let align = constant_layout.align();
+        let align = constant_layout.align().max(2);
         let registers = function.get_nth_param(0).unwrap().into_pointer_value();
         let ip = function.get_nth_param(1).unwrap().into_pointer_value();
         let ip_int = builder.build_ptr_to_int(ip, usize_type, "ip_int");
@@ -2207,7 +2219,7 @@ impl<'ctx, 'm> LLVMFunctionBuilder<'ctx> {
             "aligned_ip",
         );
         let mut constant_list = Vec::new();
-        for (_index, (constant_metadata, offset)) in metadata.generics.iter().zip(&constant_offset_list).enumerate() {
+        for (_index, (constant_metadata, offset)) in generics_metadatas.iter().zip(&constant_offset_list).enumerate() {
             let constant_ptr = builder.build_int_add(constant_address, usize_type.const_int(*offset as u64, true), "constant_ptr");
             match &constant_metadata.kind {
                 GenericsMetadataKind::Constant { value_type, writable } => {
@@ -2241,7 +2253,7 @@ impl<'ctx, 'm> LLVMFunctionBuilder<'ctx> {
         }
         let mut operand_list = Vec::new();
         for (index, (operand_metadata, offset)) in metadata.operands.iter().zip(&operand_offset_list).enumerate() {
-            let operand_index_address = builder.build_int_add(constant_address, usize_type.const_int(*offset as u64, true), "remote_constant");
+            let operand_index_address = builder.build_int_add(constant_address, usize_type.const_int(*offset as u64, true), &format!("operand_{}_addr", index));
 
             let operand_index_ptr = builder.build_int_to_ptr(operand_index_address, context.i16_type().ptr_type(AddressSpace::Shared), "constant_ptr_cast");
             let operand_index = builder.build_load(operand_index_ptr, &format!("operand_{}", index)).into_int_value();
@@ -2255,6 +2267,11 @@ impl<'ctx, 'm> LLVMFunctionBuilder<'ctx> {
         let exit_block_builder = context.create_builder();
         exit_block_builder.position_at_end(exit);
         let ip_phi = exit_block_builder.build_phi(context.i8_type().ptr_type(AddressSpace::Global), "ip");
+        let current_instruction = if let Some((stateful, _index)) = &state_instruction_type {
+            InstructionType::Stateful(CowArc::new((*stateful).clone()))
+        } else {
+            instruction_type.clone()
+        };
         let mut this = LLVMFunctionBuilder {
             context: &*context,
             builder,
@@ -2263,6 +2280,7 @@ impl<'ctx, 'm> LLVMFunctionBuilder<'ctx> {
             global,
             function,
             instruction_type: instruction_type.clone(),
+            current_instruction,
             registers: Some(registers),
             termined: false,
             state_stack: Default::default(),
@@ -2367,7 +2385,11 @@ impl<'ctx, 'm> LLVMFunctionBuilder<'ctx> {
         let usize_type = context.custom_width_int_type(usize::BITS);
         let mut args = vec![usize_type.ptr_type(AddressSpace::Local).into()];
         let mut jit_constants = Vec::new();
-        for constant_metadata in &*metadata.generics {
+        let generics_metadatas = match &state_instruction_type {
+            Some(_) => metadata.generics.split_last().ok_or_else(|| ConstantStateNotFound())?.1,
+            None => &*metadata.generics,
+        };
+        for constant_metadata in generics_metadatas {
             let layout = &mut constant_layout;
             let value_type = get_constant_type(constant_metadata, context)?;
             let (new_layout, offset) = layout.extend(value_type.get_layout()?.into())?;
@@ -2470,6 +2492,7 @@ impl<'ctx, 'm> LLVMFunctionBuilder<'ctx> {
             global,
             function,
             instruction_type: instruction_type.clone(),
+            current_instruction: instruction_type.clone(),
             registers: None,
             termined: false,
             state_stack: Default::default(),
