@@ -14,12 +14,14 @@ use log::debug;
 use log::error;
 use log::trace;
 
+use std::sync::Arc;
 use std::{cell::UnsafeCell, collections::{HashMap, HashSet}, ptr::NonNull};
 
 use failure::Fallible;
 use lazy_static::lazy_static;
 use lexical::Lexical;
 use llvm_runtime::Interpreter;
+use llvm_runtime::JITCompiler;
 use lua_lexical::LuaLexical;
 use mem::*;
 use memory_mmmu::MemoryMMMU;
@@ -243,6 +245,8 @@ pub fn new_state() -> Fallible<LuaStateReference> {
         Ok(state)
     }
 }
+pub type LuaInterpreter = Interpreter<LuaInstructionSet, MemoryMMMU>;
+pub type LuaJIT = JITCompiler<LuaInstructionSet, MemoryMMMU>;
 lazy_static! {
     pub static ref LUA_INTERPRETER: Interpreter<LuaInstructionSet, MemoryMMMU> = {
         match Interpreter::new() {

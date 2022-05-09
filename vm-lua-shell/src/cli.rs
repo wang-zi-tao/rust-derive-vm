@@ -8,4 +8,8 @@ pub struct Opt {
     pub file: Vec<PathBuf>,
     #[structopt(short = "e", long)]
     pub command: Vec<String>,
+    #[structopt(short = "b", long)]
+    pub bench: bool,
+    #[structopt(short = "j", long)]
+    pub jit: bool,
 }

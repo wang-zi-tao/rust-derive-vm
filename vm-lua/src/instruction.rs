@@ -522,11 +522,16 @@ make_instruction! {
 }
 make_instruction! { ForLoopInit->fn<block predict>(start:LuaValue,end:LuaValue)->(end:LuaState,state:LuaValue){
     entry:{ if BoolOr(IsInteger(%start),IsInteger(%end)) %use_int %use_float; },
-    use_int:{branch %predict;},
+    use_int:{
+        %state=MoveValue(%start);
+        PrintDebug(%start);
+        PrintDebug(%end);
+        PrintDebug(%state);
+        branch %predict;},
     use_float:{
         %state=ValueToFloatValue(%start);
         %end=ValueToFloatValue(%end);
-    },
+        branch %predict; },
 }}
 make_instruction! { ForLoopJump->fn<block loop,block break>(end:LuaValue,state:LuaValue)->(state:LuaValue){
     entry:{ if IsInteger(%state) %use_int %use_float; },
@@ -546,11 +551,14 @@ make_instruction! { ForLoopStepInit->fn<block predict>(start:LuaValue,end:LuaVal
     entry:{if F64Eq(0.0,ToFloat(%state)) %invalid %valid;},
     invalid:{%state=ConstNil();ThrowError();},
     valid:{ if BoolOr(IsInteger(%start),IsInteger(%end)) %use_int %use_float; },
-    use_int:{branch %predict;},
+    use_int:{
+        %state=MoveValue(%start);
+        branch %predict;},
     use_float:{
         %state=ValueToFloatValue(%start);
         %end=ValueToFloatValue(%end);
         %step=ValueToFloatValue(%step);
+        branch %predict;
     },
 }}
 make_instruction! { ForLoopStepJump->fn<block loop,block break>(end:LuaValue,step:LuaValue,state:LuaValue)->(state:LuaValue){
@@ -819,7 +827,13 @@ pub struct NegationBinaryInstruction<
                 %i2_tag=lua_value::GetTag(%i2);
                 if UsizeLt(UsizeOr(%i1_tag,%i2_tag),b::IntTruncate<12,7>(4)) %double_number %not_double_number; },
             double_number:{ if UsizeLt(UsizeOr(%i1_tag,%i2_tag),b::IntTruncate<12,7>(2)) %double_integer %not_double_integer; },
-            double_integer:{
+            double_integer:{ if UsizeLt(UsizeOr(%i1_tag,%i2_tag),b::IntTruncate<12,7>(1)) %double_small_integer %not_double_small_integer; },
+            double_small_integer:{
+                %i1_integer_value=I64Shr(lua_value::DecodeIntegerUnchecked(%i1),4);
+                %i2_integer_value=I64Shr(lua_value::DecodeIntegerUnchecked(%i2),4);
+                SetState<%DoubleSmallInteger>();
+                %i2=IntegerInstruction(%i1_integer_value,%i2_integer_value); },
+            not_double_small_integer:{
                 %i1_integer_value=GetIntegerValue(%i1);
                 %i2_integer_value=GetIntegerValue(%i2);
                 SetState<%DoubleInteger>();
@@ -843,11 +857,22 @@ pub struct NegationBinaryInstruction<
                 %i2=CallFunction2Ret1(%i2_meta_function,%i1,%i2); },
             i2_has_no_meta_function:{ %i2=ConstNil();  ThrowError(); },
         },
+        DoubleSmallInteger:{
+            entry:{
+                %i1_tag=lua_value::GetTag(%i1);
+                %i2_tag=lua_value::GetTag(%i2);
+                if UsizeLt(UsizeOr(%i1_tag,%i2_tag),b::IntTruncate<12,7>(1)) %double_integer %other; },
+            double_integer:{
+                %i1_integer_value=I64Shr(lua_value::DecodeIntegerUnchecked(%i1),4);
+                %i2_integer_value=I64Shr(lua_value::DecodeIntegerUnchecked(%i2),4);
+                %i2=IntegerInstruction(%i1_integer_value,%i2_integer_value); },
+            other:{  %i2=CallState<%Init>(%i1,%i2); },
+        },
         DoubleInteger:{
             entry:{
                 %i1_tag=lua_value::GetTag(%i1);
                 %i2_tag=lua_value::GetTag(%i2);
-                if UsizeLt(UsizeOr(%i1_tag,%i2_tag),b::IntTruncate<12,7>(4)) %double_integer %other; },
+                if UsizeLt(UsizeOr(%i1_tag,%i2_tag),b::IntTruncate<12,7>(2)) %double_integer %other; },
             double_integer:{
                 %i1_integer_value=GetIntegerValue(%i1);
                 %i2_integer_value=GetIntegerValue(%i2);
@@ -919,7 +944,7 @@ pub struct BinaryInstruction<
         Integer:{
             entry:{
                 %i1_tag=lua_value::GetTag(%i1);
-                if UsizeLt(%i1_tag,b::IntTruncate<12,7>(4)) %number %other; },
+                if UsizeLt(%i1_tag,b::IntTruncate<12,7>(2)) %number %other; },
             number:{
                 %i1_integer_value=GetIntegerValue(%i1);
                 %i1=IntegerInstruction(%i1_integer_value); },
@@ -1117,7 +1142,7 @@ make_instruction! {GetByCache->fn<mut cache:InlineCacheLine>(table:Pointer<LuaTa
         %shape=lua_table::ReadShape(%table);
         if UsizeEq(b::CastUnchecked<Usize::TYPE,NullableOption::<LuaShapeReference>::TYPE>(inline_cache_line::ReadShape(%cache)),b::CastUnchecked<Usize::TYPE,NullableOption::<LuaShapeReference>::TYPE>(NullableShapeReferenceEncodeSome(%shape))) %correct_shape %none;
     },
-    correct_shape:{ if b::Read<Bool::TYPE>(b::Deref<BoolReference::TYPE>(NullableBoolReferenceDecodeSomeUnchecked(inline_cache_line::ReadInvalid(%cache)))) %valid %none; },
+    correct_shape:{ if b::Read<Bool::TYPE>(b::Deref<BoolReference::TYPE>(NullableBoolReferenceDecodeSomeUnchecked(inline_cache_line::ReadInvalid(%cache)))) %none %valid; },
     valid:{if NullableTableReferenceIsSome(inline_cache_line::ReadTable(%cache)) %use_metatable %use_raw;},
     use_raw:{%o=Read<LuaValue::TYPE>(LocateSlot(%table,b::UIntExtend<12,6>(inline_cache_line::ReadSlot(%cache))));},
     use_metatable:{%o=Read<LuaValue::TYPE>(LocateSlot(b::Deref<LuaTableReference::TYPE>(NullableTableReferenceDecodeSome(inline_cache_line::ReadTable(%cache))),b::UIntExtend<12,6>(inline_cache_line::ReadSlot(%cache))));},
@@ -1128,7 +1153,7 @@ make_instruction! {SetByCache->fn<mut cache:InlineCacheLine>(table:Pointer<LuaTa
         %shape=lua_table::ReadShape(%table);
         if UsizeEq(b::CastUnchecked<Usize::TYPE,NullableOption::<LuaShapeReference>::TYPE>(inline_cache_line::ReadShape(%cache)),b::CastUnchecked<Usize::TYPE,NullableOption::<LuaShapeReference>::TYPE>(NullableShapeReferenceEncodeSome(%shape))) %correct_shape %none;
     },
-    correct_shape:{ if b::Read<Bool::TYPE>(b::Deref<BoolReference::TYPE>(NullableBoolReferenceDecodeSomeUnchecked(inline_cache_line::ReadInvalid(%cache)))) %valid %none; },
+    correct_shape:{ if b::Read<Bool::TYPE>(b::Deref<BoolReference::TYPE>(NullableBoolReferenceDecodeSomeUnchecked(inline_cache_line::ReadInvalid(%cache)))) %none %valid; },
     valid:{if NullableTableReferenceIsSome(inline_cache_line::ReadTable(%cache)) %use_metatable %use_raw;},
     use_raw:{
         Write<LuaValue::TYPE>(LocateSlot(%table,b::UIntExtend<12,6>(inline_cache_line::ReadSlot(%cache))),%value);

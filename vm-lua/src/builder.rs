@@ -337,7 +337,12 @@ impl<'l> LuaContext<'l> {
                 if let Some(variable) = scopt.borrow(&self.token).variables.get(&name).cloned() {
                     let expr = if closure_index == 0 {
                         trace!("get local value {:?}", &variable.expr);
-                        variable.expr.clone()
+                        Rc::new(
+                            LuaExprBuilder::default()
+                                .register(variable.expr.register.clone())
+                                .lifetime(ExprLifeTimeKind::COW)
+                                .build()?,
+                        )
                     } else {
                         let child_closure_slot_map = &mut function.borrow_mut(&mut self.token).child_closure_slot_map;
                         let slot = child_closure_slot_map.len();
@@ -1796,6 +1801,7 @@ impl<'l> LuaContext<'l> {
         let end = self.to_value(end)?;
         let state_reg = state.value_reg();
         let predicate_block_begin = &predicate_block_begin.borrow(self.token()).builder().clone();
+        let predicate_block_end = &predicate_block_end.borrow(self.token()).builder().clone();
         let loop_block_begin = &loop_block_begin.borrow(self.token()).builder().clone();
         let loop_block_end = &loop_block_end.borrow(self.token()).builder().clone();
         let pre_block_end = &init_block_end.borrow(self.token()).builder().clone();
@@ -1809,7 +1815,7 @@ impl<'l> LuaContext<'l> {
             &state_reg,
         )?;
         ForLoopJump::emit(
-            predicate_block_begin,
+            predicate_block_end,
             &mut self.token,
             loop_block_begin,
             post_block_begin,
@@ -1866,6 +1872,7 @@ impl<'l> LuaContext<'l> {
         let step = self.to_value(step)?;
         let state_reg = state.value_reg();
         let predicate_block_begin = &predicate_block_begin.borrow(self.token()).builder().clone();
+        let predicate_block_end = &predicate_block_end.borrow(self.token()).builder().clone();
         let loop_block_begin = &loop_block_begin.borrow(self.token()).builder().clone();
         let loop_block_end = &loop_block_end.borrow(self.token()).builder().clone();
         let init_block_end = &init_block_end.borrow(self.token()).builder().clone();
@@ -1880,7 +1887,7 @@ impl<'l> LuaContext<'l> {
             &state_reg,
         )?;
         ForLoopStepJump::emit(
-            predicate_block_begin,
+            predicate_block_end,
             &mut self.token,
             loop_block_begin,
             post_block_begin,
@@ -1938,6 +1945,7 @@ impl<'l> LuaContext<'l> {
         self.branch(&loop_block_end, &predicate_block_begin)?;
         self.branch(&init_block_end, &predicate_block_begin)?;
         let predicate_block_begin = &predicate_block_begin.borrow(self.token()).builder().clone();
+        let predicate_block_end = &predicate_block_end.borrow(self.token()).builder().clone();
         let loop_block_begin = &loop_block_begin.borrow(self.token()).builder().clone();
         let post_block_begin = &post_block_begin.borrow(self.token()).builder().clone();
         let state_less_iter = self.expr_list_to_vec(exprs, 3)?;
@@ -1947,7 +1955,7 @@ impl<'l> LuaContext<'l> {
         match new_vars.len() {
             0 => {
                 ForInLoopJump1::emit(
-                    predicate_block_begin,
+                    predicate_block_end,
                     &mut self.token,
                     loop_block_begin,
                     post_block_begin,
@@ -1959,7 +1967,7 @@ impl<'l> LuaContext<'l> {
             1 => {
                 let ret1 = new_vars[0].value_reg();
                 ForInLoopJump2::emit(
-                    predicate_block_begin,
+                    predicate_block_end,
                     &mut self.token,
                     loop_block_begin,
                     post_block_begin,
@@ -1972,7 +1980,7 @@ impl<'l> LuaContext<'l> {
             o => {
                 let rets = self.alloc_register()?;
                 ForInLoopJump::emit(
-                    predicate_block_begin,
+                    predicate_block_end,
                     &mut self.token,
                     loop_block_begin,
                     post_block_begin,
@@ -2274,33 +2282,30 @@ impl<'l> LuaContext<'l> {
         match &expr.lifetime {
             ExprLifeTimeKind::Own => Ok(expr),
             ExprLifeTimeKind::COW => {
-                if Rc::get_mut(&mut expr).is_some() {
-                    Ok(expr)
-                } else {
-                    let reg = match &expr.register {
-                        LuaRegister::Integer(r) => {
-                            let new_reg = self.alloc_register()?;
-                            MoveI64::emit(&self.current_builder, &mut self.token, r, &new_reg)?;
-                            LuaRegister::Integer(new_reg)
-                        }
-                        LuaRegister::Float(r) => {
-                            let new_reg = self.alloc_register()?;
-                            MoveF64::emit(&self.current_builder, &mut self.token, r, &new_reg)?;
-                            LuaRegister::Float(new_reg)
-                        }
-                        LuaRegister::Function(r, s) => {
-                            let new_reg = self.alloc_register()?;
-                            MoveValue::emit(&self.current_builder, &mut self.token, r, &new_reg)?;
-                            LuaRegister::Function(new_reg, s.clone())
-                        }
-                        LuaRegister::Value(r, s) => {
-                            let new_reg = self.alloc_register()?;
-                            MoveValue::emit(&self.current_builder, &mut self.token, r, &new_reg)?;
-                            LuaRegister::Value(new_reg, *s)
-                        }
-                    };
-                    Ok(Rc::new(LuaExprBuilder::default().register(reg).build()?))
-                }
+                let reg = match &expr.register {
+                    LuaRegister::Integer(r) => {
+                        let new_reg = self.alloc_register()?;
+                        MoveI64::emit(&self.current_builder, &mut self.token, r, &new_reg)?;
+                        LuaRegister::Integer(new_reg)
+                    }
+                    LuaRegister::Float(r) => {
+                        let new_reg = self.alloc_register()?;
+                        MoveF64::emit(&self.current_builder, &mut self.token, r, &new_reg)?;
+                        LuaRegister::Float(new_reg)
+                    }
+                    LuaRegister::Function(r, s) => {
+                        let new_reg = self.alloc_register()?;
+                        MoveValue::emit(&self.current_builder, &mut self.token, r, &new_reg)?;
+                        LuaRegister::Function(new_reg, s.clone())
+                    }
+                    LuaRegister::Value(r, s) => {
+                        let new_reg = self.alloc_register()?;
+                        MoveValue::emit(&self.current_builder, &mut self.token, r, &new_reg)?;
+                        LuaRegister::Value(new_reg, *s)
+                    }
+                };
+                debug!("to writeable {:?}<-{:?}", &reg, &expr);
+                Ok(Rc::new(LuaExprBuilder::default().register(reg).build()?))
             }
         }
     }
