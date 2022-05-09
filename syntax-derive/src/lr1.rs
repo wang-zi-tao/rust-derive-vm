@@ -181,7 +181,7 @@ impl SyntaxLR1 {
                 Action::Reduce(production) => {
                     let span = production.callback.as_ref().map(|e| e.span()).unwrap_or_else(|| production.left_part.ident.span());
                     let mut pop_values = Vec::new();
-                    for (symbol, value_ident) in production.right_part.iter() {
+                    for (symbol, value_ident) in production.right_part.iter().rev() {
                         if stack_map.contains_key(symbol) {
                             let token_stream_unwrap = value_ident.clone().unwrap_or_else(|| quote! {_});
                             let stack = symbol.get_ident();
