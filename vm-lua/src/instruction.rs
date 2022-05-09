@@ -262,7 +262,6 @@ make_instruction! { CallFunction2VaRet1->fn(callable:LuaValue,arg1:LuaValue,arg2
 make_instruction! { CallFunction3VaRet1->fn(callable:LuaValue,arg1:LuaValue,arg2:LuaValue,arg3:LuaValue,va_args:Pointer<UnsizedArray<LuaValue>>)->(r: LuaValue){ entry:{
         %r=GetRet0(CallFunctionVA(%callable,MakeSlice<LuaValue::TYPE,3>(%arg1,%arg2,%arg3),%va_args));
 }}}
-type NullableUpValeRefDecodeSome = nullable_option::DecodeSomeUnchecked<LuaUpValueReference>;
 type NullableLuaValuePointerDecodeSome = nullable_option::DecodeSomeUnchecked<Pointer<LuaValue>>;
 type ReadUpRefs = e::ReadElement<NullablePointer<LuaValue>, UnsizedArray<NullablePointer<LuaValue>>>;
 type WriteUpRefs = e::WriteElement<NullablePointer<LuaValue>, UnsizedArray<NullablePointer<LuaValue>>>;
@@ -646,7 +645,7 @@ pub struct UniqueInstruction<
             entry:{
                 %i1_tag=lua_value::GetTag(%i1);
                 %i2_tag=lua_value::GetTag(%i2);
-                if IsizeLe(b::IntTruncate<11,12>(UsizeOr(%i1_tag,%i2_tag)),b::IntTruncate<11,7>(4)) %double_number %not_double_number; },
+                if UsizeLt(UsizeOr(%i1_tag,%i2_tag),b::IntTruncate<12,7>(4)) %double_number %not_double_number; },
             double_number:{ if UsizeLt(UsizeOr(%i1_tag,%i2_tag),b::IntTruncate<12,7>(2)) %double_integer %not_double_integer; },
             double_integer:{
                 %i1_integer_value=GetIntegerValue(%i1);
@@ -676,7 +675,7 @@ pub struct UniqueInstruction<
             entry:{
                 %i1_tag=lua_value::GetTag(%i1);
                 %i2_tag=lua_value::GetTag(%i2);
-                if IsizeLe(b::IntTruncate<11,12>(UsizeOr(%i1_tag,%i2_tag)),b::IntTruncate<11,7>(4)) %double_integer %other; },
+                if UsizeLt(UsizeOr(%i1_tag,%i2_tag),b::IntTruncate<12,7>(4)) %double_integer %other; },
             double_integer:{
                 %i1_integer_value=GetIntegerValue(%i1);
                 %i2_integer_value=GetIntegerValue(%i2);
@@ -762,7 +761,7 @@ pub struct FlipBinaryInstruction<
             entry:{
                 %i1_tag=lua_value::GetTag(%i1);
                 %i2_tag=lua_value::GetTag(%i2);
-                if IsizeLe(b::IntTruncate<11,12>(UsizeOr(%i1_tag,%i2_tag)),b::IntTruncate<11,7>(4)) %double_integer %other; },
+                if UsizeLt(UsizeOr(%i1_tag,%i2_tag),b::IntTruncate<12,7>(4)) %double_integer %other; },
             double_integer:{
                 %i1_integer_value=GetIntegerValue(%i1);
                 %i2_integer_value=GetIntegerValue(%i2);
@@ -848,7 +847,7 @@ pub struct NegationBinaryInstruction<
             entry:{
                 %i1_tag=lua_value::GetTag(%i1);
                 %i2_tag=lua_value::GetTag(%i2);
-                if IsizeLe(b::IntTruncate<11,12>(UsizeOr(%i1_tag,%i2_tag)),b::IntTruncate<11,7>(4)) %double_integer %other; },
+                if UsizeLt(UsizeOr(%i1_tag,%i2_tag),b::IntTruncate<12,7>(4)) %double_integer %other; },
             double_integer:{
                 %i1_integer_value=GetIntegerValue(%i1);
                 %i2_integer_value=GetIntegerValue(%i2);
@@ -974,7 +973,7 @@ pub type OptionLuaMetaFunctionsRefIsSome = nullable_option::IsSome<LuaMetaFuncti
             entry:{
                 %i1_tag=lua_value::GetTag(%i1);
                 %i2_tag=lua_value::GetTag(%i2);
-                if IsizeLe(b::IntTruncate<11,12>(UsizeOr(%i1_tag,%i2_tag)),b::IntTruncate<11,7>(4)) %double_number %other; },
+                if UsizeLt(UsizeOr(%i1_tag,%i2_tag),b::IntTruncate<12,7>(4)) %double_number %other; },
             double_number:{
                 %i1_integer_value=GetIntegerValue(%i1);
                 %i2_integer_value=GetIntegerValue(%i2);
@@ -1562,5 +1561,13 @@ make_instruction! {
 make_instruction! {GetVaArgs->fn<const index:Usize>(args:Slice<LuaValue>)->(va_args:Slice<LuaValue>){ entry:{
         %va_args=LuaValueSubSlice(%args,%index,UsizeSub(LuaValueSliceLen(%args),%index));
 }}}
+#[make_native_function(PrintDebug)]
+pub extern "C" fn __vm_lua_lib_print_debug(value: Direct<LuaValue>) {
+    let mut buffer = Vec::new();
+    unsafe {
+        extend_to_buffer(&mut buffer, value);
+    }
+    debug!("{}", String::from_utf8_lossy(&buffer));
+}
 #[make_native_function(BreakPoint)]
 pub extern "C" fn __vm_lua_lib_break_point() { let _a = 0; }

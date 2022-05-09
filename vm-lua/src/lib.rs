@@ -11,6 +11,8 @@
 #![feature(nonnull_slice_from_raw_parts)]
 #![feature(const_convert)]
 use log::debug;
+use log::error;
+use log::trace;
 
 use std::{cell::UnsafeCell, collections::{HashMap, HashSet}, ptr::NonNull};
 
@@ -304,6 +306,18 @@ pub fn set_signal_handler() {
         )
         .unwrap();
     }
+}
+pub fn spawn(lua_state: LuaStateReference, code: String) -> std::thread::JoinHandle<()> {
+    std::thread::spawn(move || {
+        let code = code;
+        match run_code(lua_state, &code) {
+            Ok(_) => {}
+            Err(e) => {
+                error!("{}", e);
+                trace!("{:?}", e);
+            }
+        };
+    })
 }
 #[cfg(test)]
 mod tests {

@@ -70,11 +70,14 @@ pub fn parse(lua_state: LuaStateReference, source: Vec<LuaLexical>) -> Fallible<
               [stat_list,return_expr(r),block_split(s)]=>ctx.return_(r,s);
                 | [stat_list,block_split(s)]=>Ok(s);
             },
+            for_prepare=>()->{[t!(for)]=>ctx.loop_head();},
+            while_prepare=>()->{[t!(while)]=>ctx.loop_head();},
+            repeat_prepare=>()->{[t!(repeat)]=>ctx.loop_head();},
             stat_list=>()->{ []|[stat,stat_list] },
-            block_split=>(LuaBlockRef<'_>,LuaBlockRef<'_>)->{ []=>Ok((ctx.current_block.clone(),ctx.new_block().clone())); },
+            block_split=>(LuaBlockRef<'_>,LuaBlockRef<'_>)->{ []=>ctx.split_block(); },
             current_block=>LuaBlockRef<'_>->{ []=>Ok(ctx.current_block.clone()); },
-            scopt_begin=>LuaScoptRef<'_>->{ []=>Ok(ctx.new_scopt(ScoptKind::Other).clone()); },
-            loop_scopt_begin=>LuaScoptRef<'_>->{ []=>Ok(ctx.new_scopt(ScoptKind::Loop{break_block:ctx.current_block.clone()}).clone()); },
+            scopt_begin=>LuaScoptRef<'_>->{ []=>ctx.new_scopt(ScoptKind::Other); },
+            loop_scopt_begin=>LuaScoptRef<'_>->{ []=>ctx.new_scopt(ScoptKind::Loop{break_block:ctx.current_block.clone()}); },
             stat->{
                 [t!(;)]=>Ok(());
               | [stat_var_list(v),t!(=),expr_list(exprs)]=>ctx.put_values(v,exprs);
@@ -89,17 +92,16 @@ pub fn parse(lua_state: LuaStateReference, source: Vec<LuaLexical>) -> Fallible<
               | [t!(local),t!(function),Name(n),function_boby(f)]=>ctx.local_function(n,f);
               | [t!(local),att_name_list(a)]=>ctx.local_variable(a);
               | [t!(local),att_name_list(a),t!(=),expr_list(e)]=>ctx.local_variable_with_values(a,e);
-              | [t!(do),loop_block(b),t!(end)]=>ctx.finish_block(b);
-              | [t!(while),expr_wraped(e),block_split(s),t!(do),loop_block(b),t!(end)]=>ctx.while_(e,s,b);
-              | [t!(repeat),block_split(s),loop_block(b),t!(until),expr_wraped(e)]=>ctx.repeat(s,b,e);
-              | [t!(for),for_head(h),block_inner(b),t!(end)]=>ctx.for_(h,b);
-              | [t!(for),for_each_head(h),block_inner(b),t!(end)]=>ctx.for_step(h,b);
-              | [t!(for),for_in_head(h),block_inner(b),t!(end)]=>ctx.for_in(h,b);
+              | [t!(do),block(b),t!(end)]=>ctx.finish_block(b);
+              | [while_prepare,block_split(p),expr(e),block_split(s),t!(do),loop_block(b),t!(end)]=>ctx.while_((p,e),s,b);
+              | [repeat_prepare,block_split(s),loop_block(b),t!(until),block_split(p),expr(e)]=>ctx.repeat(s,b,(p,e));
+              | [for_prepare,for_head(h),block_inner(b),t!(end)]=>ctx.for_(h,b);
+              | [for_prepare,for_each_head(h),block_inner(b),t!(end)]=>ctx.for_step(h,b);
+              | [for_prepare,for_in_head(h),block_inner(b),t!(end)]=>ctx.for_in(h,b);
             },
             for_head->{ [Name(n),t!(=),expr(e),t!(,),expr(e1),t!(do),block_split(p),block_split(p1),loop_scopt_begin]=>ctx.for_head(n,e,e1,p,p1); },
             for_each_head->{ [Name(n),t!(=),expr(e),t!(,),expr(e1),t!(,),expr(e2),t!(do),block_split(p),block_split(p1),loop_scopt_begin]=>ctx.for_step_head(n,e,e1,e2,p,p1); },
             for_in_head->{ [name_list(n),t!(in),expr_list(e),t!(do),block_split(p),block_split(p1),loop_scopt_begin]=>ctx.for_in_head(n,e,p,p1); },
-            expr_wraped=>((LuaBlockRef<'_>,LuaBlockRef<'_>),LuaExprRef)->{ [block_split(b),expr(e)]=>Ok((b,e)); },
             if_prefix=>(LuaBlockRef<'_>,LuaBlockRef<'_>)->{
               [t!(if),expr(e),block_split(b),t!(then),block(c)]=>ctx.if_(e,b,c);
                 | [if_prefix(p),t!(elseif),expr(e),block_split(c),t!(then),block(b),block_split(n)]=>ctx.elseif(p,e,c,b,n);

@@ -19,3 +19,13 @@ evmap="11.0.0-alpha.7"
 left-right = "0.11.2"
 smallvec = "1.6.1"
 util-derive = {path="../util-derive/"}
+[features]
+derive=[]
+[dependencies.derive]
+syn-serde = "0.2.3"
+syn ={version = "1.0.72",features = ["full"]}
+quote = "1.0.0"
+synstructure = "0.12.4"
+proc-macro2 = "1.0.27"
+failure = "0.1.8"
+ahash = "0.7.6"

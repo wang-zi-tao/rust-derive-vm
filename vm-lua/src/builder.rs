@@ -50,6 +50,13 @@ impl<'l> LuaRegister<'l> {
             LuaRegister::Function(_, _) | LuaRegister::Value(_, _) => LuaRegisterKind::Value,
         }
     }
+    pub fn reg_index(&self) -> u16 {
+        match self {
+            LuaRegister::Integer(r) => r.reg(),
+            LuaRegister::Float(r) => r.reg(),
+            LuaRegister::Function(r, _) | LuaRegister::Value(r, _) => r.reg(),
+        }
+    }
 }
 #[derive(Clone, Copy)]
 pub enum LuaRegisterKind {
@@ -231,12 +238,14 @@ impl<'l> LuaFunctionBuilder<'l> {
         let new_block = LuaBlock::new();
         let new_block_wraped = Rc::new(GhostCell::new(new_block));
         self.blocks.push(new_block_wraped.clone());
+        self.current_block = new_block_wraped.clone();
         new_block_wraped
     }
     pub fn new_scopt(&mut self, kind: ScoptKind<'l>) -> LuaScoptRef<'l> {
         let new_scopt = LuaScopt::new(kind);
         let new_scopt_wraped = Rc::new(GhostCell::new(new_scopt));
         self.scopts.push(new_scopt_wraped.clone());
+        self.current_scopt = new_scopt_wraped.clone();
         new_scopt_wraped
     }
 }
@@ -293,21 +302,26 @@ impl<'l> LuaContext<'l> {
     pub fn builder(&self) -> &BlockBuilder<'l, LuaInstructionSet> { &self.current_builder }
     pub fn token(&self) -> &GhostToken<'l> { &self.token }
     pub fn token_mut(&mut self) -> &mut GhostToken<'l> { &mut self.token }
-    pub fn new_scopt(&mut self, kind: ScoptKind<'l>) -> &LuaScoptRef<'l> {
+    pub fn new_scopt(&mut self, kind: ScoptKind<'l>) -> Fallible<LuaScoptRef<'l>> {
         trace!("new_scopt");
         let new_scopt = self.current_function_mut().new_scopt(kind);
         self.current_scopt = new_scopt;
-        &self.current_scopt
+        Ok(self.current_scopt.clone())
     }
     pub fn new_block(&mut self) -> &LuaBlockRef<'l> {
         let new_block = self.current_function_mut().new_block();
-        debug!(
-            "new_block {:?}",
-            &new_block.borrow(self.token()).builder().borrow(self.token())
-        );
         self.current_builder = new_block.borrow(self.token()).builder.clone();
         self.current_block = new_block;
         &self.current_block
+    }
+    pub fn split_block(&mut self) -> Fallible<(LuaBlockRef<'l>, LuaBlockRef<'l>)> {
+        let r = ((self.current_block.clone(), self.new_block().clone()));
+        debug!(
+            "split_block {:?},{:?}",
+            r.0.borrow(self.token()).builder(),
+            r.1.borrow(self.token()).builder()
+        );
+        Ok(r)
     }
     pub fn current_function(&self) -> &LuaFunctionBuilder<'l> { self.current_function.borrow(self.token()) }
     pub fn current_function_mut(&mut self) -> &mut LuaFunctionBuilder<'l> {
@@ -322,6 +336,7 @@ impl<'l> LuaContext<'l> {
             for (scopt_index, scopt) in function.borrow(&self.token).scopts.clone().iter().enumerate().rev() {
                 if let Some(variable) = scopt.borrow(&self.token).variables.get(&name).cloned() {
                     let expr = if closure_index == 0 {
+                        trace!("get local value {:?}", &variable.expr);
                         variable.expr.clone()
                     } else {
                         let child_closure_slot_map = &mut function.borrow_mut(&mut self.token).child_closure_slot_map;
@@ -340,6 +355,7 @@ impl<'l> LuaContext<'l> {
                             &LUA_CLOSURE_REG,
                             &reg,
                         )?;
+                        trace!("get up value ({}<-({},{}))", reg.reg(), closure_index - 1, slot);
                         LuaExpr::new_value(reg)
                     };
                     return Ok(Rc::new(
@@ -351,6 +367,7 @@ impl<'l> LuaContext<'l> {
                 }
             }
         }
+        trace!("get global value {}", &name);
         let reg = self.alloc_register()?;
         let name = self.const_string_value(name)?;
         let cache = self.empty_inline_cache_line()?;
@@ -375,8 +392,23 @@ impl<'l> LuaContext<'l> {
                 if let Some(variable) = scopt.borrow(self.token()).variables.get(&name).cloned() {
                     if closure_index == 0 {
                         let operate_kind = Self::trans_binary_type(true, true, &value, &variable.expr);
-                        let from = Self::transform_expr(self, value, operate_kind)?;
+                        let from = Self::transform_expr(self, value.clone(), operate_kind)?;
                         let to = Self::transform_expr(self, variable.expr.clone(), operate_kind)?;
+                        if to.register.reg_index() != variable.expr.register.reg_index() {
+                            scopt
+                                .borrow_mut(self.token_mut())
+                                .variables
+                                .get_mut(&name)
+                                .unwrap()
+                                .expr = to.clone();
+                        }
+                        trace!(
+                            "put local value {:?}=>{:?}<---{:?}<={:?}",
+                            &variable.expr,
+                            &to,
+                            &from,
+                            &value
+                        );
                         match (&from.register, &to.register) {
                             (LuaRegister::Integer(r1), LuaRegister::Integer(r2)) => {
                                 MoveI64::emit(&self.current_builder, &mut self.token, r1, r2)?;
@@ -398,6 +430,7 @@ impl<'l> LuaContext<'l> {
                             .borrow_mut(&mut self.token)
                             .new_child_closure_slot_map
                             .insert(name, (slot, scopt_index));
+                        trace!("put up value ({},{})<-{:?}", closure_index - 1, slot, &value);
                         SetUpVariable::emit(
                             &self.current_builder,
                             &mut self.token,
@@ -414,6 +447,7 @@ impl<'l> LuaContext<'l> {
         let value = self.to_value(value)?;
         match &value.register {
             LuaRegister::Value(r, _) => {
+                trace!("put global value {:?}<-{:?}", &name, &value);
                 let name = self.const_string_value(name)?;
                 let cache = self.empty_inline_cache_line()?;
                 SetGlobal::emit(&self.current_builder, &mut self.token, name, cache, &LUA_STATE_REG, r)?;
@@ -432,7 +466,6 @@ impl<'l> LuaContext<'l> {
         let to = &to.borrow(self.token()).clone().builder().clone();
         debug!("branch {:?}->{:?}", &from, &to);
         ir::Goto::emit(from, &mut self.token, to)?;
-        debug!("{:?}", from.codes().borrow(self.token()));
         Ok(())
     }
     pub fn branch_if(
@@ -445,6 +478,7 @@ impl<'l> LuaContext<'l> {
         let from = &from.borrow(self.token()).clone().builder().clone();
         let t = &t.borrow(self.token()).clone().builder().clone();
         let f = &f.borrow(self.token()).clone().builder().clone();
+        debug!("if branch {:?}?{:?}:{:?}", &predicate, &t, &f);
         match &predicate.register {
             LuaRegister::Integer(_r) => ir::Goto::emit(from, &mut self.token, t)?,
             LuaRegister::Float(_r) => ir::Goto::emit(from, &mut self.token, t)?,
@@ -1588,6 +1622,13 @@ impl<'l> LuaContext<'l> {
             &loop_block_begin,
             &post_block_begin,
         )?;
+        debug!(
+            "while ({:?}:{:?}) do {:?},{:?} end",
+            predicate_block_begin.borrow(self.token()).builder(),
+            predicate_block_end.borrow(self.token()).builder(),
+            loop_block_begin.borrow(self.token()).builder(),
+            loop_block_end.borrow(self.token()).builder(),
+        );
         self.branch(&loop_block_end, &predicate_block_begin)?;
         self.branch(&pre_block_end, &predicate_block_begin)?;
         Ok(())
@@ -1702,6 +1743,17 @@ impl<'l> LuaContext<'l> {
         self.branch(&false_block_end, &post_block_begin)?;
         Ok(())
     }
+    pub fn loop_head(&mut self) -> Fallible<()> {
+        for scopt in self.current_function().scopts.clone() {
+            let mut variables = scopt.borrow(self.token()).variables.clone();
+            for var in variables.values_mut() {
+                var.expr = self.to_value(var.expr.clone())?;
+            }
+            scopt.borrow_mut(self.token_mut()).variables = variables;
+        }
+        Ok(())
+    }
+
     pub fn for_head(
         &mut self,
         var: String,
@@ -2157,8 +2209,9 @@ impl<'l> LuaContext<'l> {
                 LuaExpr::new_value(r3)
             }
             (LuaRegister::Value(r1, _), LuaRegister::Value(r2, _)) => {
-                emit_object(&self.current_builder, &mut self.token, r1, r2)?;
-                LuaExpr::new_value(r2.clone())
+                let expr2 = self.to_writable(expr2)?;
+                emit_object(&self.current_builder, &mut self.token, r1, expr2.value_reg())?;
+                expr2
             }
             _ => unreachable!(),
         };
@@ -2204,11 +2257,13 @@ impl<'l> LuaContext<'l> {
         Ok(match &expr.register {
             LuaRegister::Integer(r) => {
                 let new_reg = self.alloc_register()?;
+                debug!("to value {:?}->{:?}", &expr, &new_reg);
                 I64ToValue::emit(&self.current_builder, &mut self.token, r, &new_reg)?;
                 LuaExpr::new_value(new_reg)
             }
             LuaRegister::Float(r) => {
                 let new_reg = self.alloc_register()?;
+                debug!("to value {:?}->{:?}", &expr, &new_reg);
                 F64ToValue::emit(&self.current_builder, &mut self.token, r, &new_reg)?;
                 LuaExpr::new_value(new_reg)
             }

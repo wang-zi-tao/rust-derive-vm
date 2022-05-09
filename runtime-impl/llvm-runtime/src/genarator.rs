@@ -2127,11 +2127,11 @@ impl<'ctx, 'm> LLVMFunctionBuilder<'ctx> {
         let deploy_table_type = deploy_table_entry_type.array_type(instruction_count.try_into()?);
         let instruction_function_pointers = global.borrow().module.add_global(deploy_table_type, Some(AddressSpace::Generic), name);
         let mut deploy_table_value: Vec<PointerValue<'ctx>> = Vec::with_capacity(instruction_count as usize);
-        for (index, (_opcode, instruction)) in instructions.iter().enumerate() {
+        for (index, (opcode, instruction)) in instructions.iter().enumerate() {
             match instruction {
                 InstructionType::Stateful(stateful_instruction) => {
                     let _metadata = stateful_instruction.metadata.clone();
-                    let start = index;
+                    let start = *opcode;
                     for (index, state) in stateful_instruction.statuses.iter().enumerate() {
                         let state_instruction: InstructionType = InstructionType::Complex(CowArc::new(state.instruction.clone()));
                         let instruction_function = Self::generate_instruction_interpreter(
@@ -2545,11 +2545,11 @@ impl<'ctx, 'm> LLVMFunctionBuilder<'ctx> {
         let deploy_table_entry_type = get_instruction_function_type(context).ptr_type(AddressSpace::Generic);
         let _deploy_table_type = deploy_table_entry_type.array_type(instruction_count.try_into()?);
         let mut jit_instructions = Vec::with_capacity(instruction_count as usize);
-        for (index, (_opcode, instruction)) in instructions.iter().enumerate() {
+        for (index, (opcode, instruction)) in instructions.iter().enumerate() {
             match instruction {
                 InstructionType::Stateful(stateful_instruction) => {
                     let _metadata = stateful_instruction.metadata.clone();
-                    let start = index;
+                    let start = opcode;
                     for (index, state) in stateful_instruction.statuses.iter().enumerate() {
                         let state_instruction: InstructionType = InstructionType::Complex(CowArc::new(state.instruction.clone()));
                         let jit_instruction = Self::generate_instruction_jit(

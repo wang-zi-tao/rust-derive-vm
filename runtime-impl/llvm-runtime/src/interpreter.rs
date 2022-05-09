@@ -301,9 +301,6 @@ fn convert_type(vm_type: &vm_core::Type) -> Type {
         _ => Type::pointer(),
     }
 }
-unsafe extern "C" fn panic() {
-    panic!();
-}
 impl FunctionBinder {
     pub(crate) fn bind<'ctx>(
         &self,

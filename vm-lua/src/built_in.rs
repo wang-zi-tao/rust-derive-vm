@@ -12,6 +12,9 @@ pub fn empty_return() -> Pointer<UnsizedArray<LuaValue>> { Pointer::new(NonNull:
 pub extern "C" fn print(state: LuaStateReference, args: &[LuaValueImpl]) -> Pointer<UnsizedArray<LuaValue>> {
     let mut buffer = Vec::new();
     for (arg_index, arg) in args.iter().enumerate() {
+        if arg_index != 0 {
+            buffer.push(b'\t');
+        }
         unsafe {
             extend_to_buffer(&mut buffer, Direct(arg.clone()));
         }

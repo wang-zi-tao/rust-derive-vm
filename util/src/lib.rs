@@ -9,6 +9,8 @@ mod cache_aligned_vec;
 mod const_map;
 mod cow;
 mod default_arc;
+#[cfg(feature = "derive")]
+mod derive;
 mod graph;
 mod hash;
 mod ident;
@@ -19,8 +21,9 @@ mod string_pool;
 mod token_rwlock;
 
 pub use crate::{
-    as_any::*, atomic_cell::*, atomic_lazy_arc::*, cache_aligned_vec::*, const_map::*, cow::*,
-    default_arc::*, graph::*, hash::*, ident::*, lazy_dyn_ref::*, linked_list::*, pooled::*,
-    string_pool::*, token_rwlock::*,
+    as_any::*, atomic_cell::*, atomic_lazy_arc::*, cache_aligned_vec::*, const_map::*, cow::*, default_arc::*, graph::*, hash::*, ident::*, lazy_dyn_ref::*,
+    linked_list::*, pooled::*, string_pool::*, token_rwlock::*,
 };
+#[cfg(feature = "derive")]
+pub use derive::*;
 pub use util_derive::inline_const;

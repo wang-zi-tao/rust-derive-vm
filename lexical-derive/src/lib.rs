@@ -364,10 +364,13 @@ fn do_lexical_derive(s: synstructure::Structure) -> Result<proc_macro2::TokenStr
                     }
                 }
             };
+            let ignore = v.0.ignore;
             quote! {
               if let Some(matches)=cap.name(&#name){
                 let token_str=matches.as_str();
-                tokens.push(#constructor);
+                if !#ignore{
+                    tokens.push(#constructor);
+                }
                 chars=chars.as_str().split_at(token_str.len()).1.chars();
                 continue;
               }
@@ -434,16 +437,28 @@ fn do_lexical_derive(s: synstructure::Structure) -> Result<proc_macro2::TokenStr
             })
             .collect::<Vec<_>>();
         let idents = word_variants.iter().map(|v| v.1.ast().ident.to_token_stream()).collect::<Vec<_>>();
+        let mut cases = Vec::new();
+        for word_variant in word_variants.iter() {
+            let string = match &word_variant.0.match_kind {
+                MatchKind::Word(word) => word,
+                _ => unreachable!(),
+            };
+            let ident = word_variant.1.ast().ident.clone();
+            let ignore = word_variant.0.ignore;
+            cases.push(quote! {#string=>{
+              if !#ignore{
+                  tokens.push(Self::#ident);
+              }
+              chars=chars.as_str().split_at(token_str.len()).1.chars();
+              continue;
+            }});
+        }
         quote! {
           if let Some(cap)=WORD_REGEX.captures(chars.as_str()){
             if let Some(matches)=cap.name("word"){
               let token_str=matches.as_str();
               match token_str{
-                #(#strings=>{
-                  tokens.push(Self::#idents);
-                  chars=chars.as_str().split_at(token_str.len()).1.chars();
-                  continue;
-                }),*
+                #(#cases),*
                 _=>{}
               }
             }

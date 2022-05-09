@@ -61,6 +61,7 @@ make_instruction_set! {
     BreakPoint->i::BreakPoint,
     MakeTable->i::MakeTable,MakeTable0->i::MakeTable0,
     ForInLoopJump1->i::ForInLoopJump1,ForInLoopJump2->i::ForInLoopJump2,ForInLoopJump->i::ForInLoopJump,
-    ConstClosure0->i::ConstClosure0,ConstClosure->i::ConstClosure,SetUpRef->i::SetUpRef,NewUpValue->i::NewUpValue
+    ConstClosure0->i::ConstClosure0,ConstClosure->i::ConstClosure,SetUpRef->i::SetUpRef,NewUpValue->i::NewUpValue,
+    Print->i::PrintDebug,
   ]
 }
