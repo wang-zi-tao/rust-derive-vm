@@ -35,31 +35,31 @@ mod tests {
     #[allow(unused_imports)]
     pub use LexicalImpl::*;
     #[test]
-    fn lexical_parse_0() {
+    fn lexical_parse_empty() {
         assert_eq!(&*LexicalImpl::parse("").unwrap(), &[]);
     }
     #[test]
-    fn lexical_parse_1() {
+    fn lexical_parse_single_char_string() {
         assert_eq!(&*LexicalImpl::parse("+").unwrap(), &[Add]);
     }
     #[test]
-    fn lexical_parse_2() {
+    fn lexical_parse_multi_char_string() {
         assert_eq!(&*LexicalImpl::parse("+=").unwrap(), &[AddAssign]);
     }
     #[test]
-    fn lexical_parse_3() {
+    fn lexical_parse_new_line() {
         assert_eq!(&*LexicalImpl::parse("+=\n").unwrap(), &[AddAssign, Newline]);
     }
     #[test]
-    fn lexical_parse_4() {
+    fn lexical_parse_indentation_increase() {
         assert_eq!(&*LexicalImpl::parse("+=\n -").unwrap(), &[AddAssign, Newline, IndentationIncrease(1, " ".to_string()), Sub]);
     }
     #[test]
-    fn lexical_parse_5() {
+    fn lexical_parse_newlines() {
         assert_eq!(&*LexicalImpl::parse("+=\n\n").unwrap(), &[AddAssign, Newline, Newline]);
     }
     #[test]
-    fn lexical_parse_6() {
+    fn lexical_parse_indentation() {
         assert_eq!(
             &*LexicalImpl::parse(
                 "+=
@@ -71,23 +71,23 @@ mod tests {
         );
     }
     #[test]
-    fn lexical_parse_7() {
+    fn lexical_parse_regex() {
         assert_eq!(&*LexicalImpl::parse("123456").unwrap(), &[Int(123456)]);
     }
     #[test]
-    fn lexical_parse_8() {
+    fn lexical_parse_regex_ident() {
         assert_eq!(&*LexicalImpl::parse("abc").unwrap(), &[Identify("abc".into())]);
     }
     #[test]
-    fn lexical_parse_9() {
+    fn lexical_parse_multi_regex() {
         assert_eq!(&*LexicalImpl::parse("abc中文 123").unwrap(), &[Identify("abc中文".into()), Int(123)]);
     }
     #[test]
-    fn lexical_parse_10() {
+    fn lexical_parse_word() {
         assert_eq!(&*LexicalImpl::parse("if").unwrap(), &[If]);
     }
     #[test]
-    fn lexical_parse_11() {
+    fn lexical_parse_word_end() {
         assert_eq!(&*LexicalImpl::parse("if 123").unwrap(), &[If, Int(123)]);
     }
     #[derive(Lexical)]

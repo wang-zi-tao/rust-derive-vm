@@ -13,6 +13,7 @@ pkgs.mkShell {
     libxml2
     glibc
     pkg-config
+    lua
     (fenix.fromToolchainFile {
       file = ./rust-toolchain.toml;
       sha256 = "sha256-CNMj0ouNwwJ4zwgc/gAeTYyDYe0botMoaj/BkeDTy4M=";

@@ -1,7 +1,6 @@
-
 use smallstr::SmallString;
 use smallvec::SmallVec;
-use std::{iter::{Iterator}, str::{from_utf8, Chars}};
+use std::{iter::Iterator, str::{from_utf8, Chars}};
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum LitStringPrefix {
     /// '\''
@@ -14,12 +13,8 @@ enum LitStringPrefix {
 impl LitStringPrefix {
     pub fn match_end(&self, iter: &mut Chars, c: char) -> bool {
         match self {
-            Self::Apostrophe => {
-                c == '\''
-            }
-            Self::DoubleQuotes => {
-                c == '\"'
-            }
+            Self::Apostrophe => c == '\'',
+            Self::DoubleQuotes => c == '\"',
             Self::LongBracket(l) => {
                 let mut iter_clone = iter.clone();
                 if c != ']' {
@@ -206,6 +201,7 @@ fn parse_number(iter: &mut Chars) -> Option<Number> {
                     return None;
                 }
             } else if c == 'p' {
+                iter.next();
                 let mut p_number: i32 = 0;
                 let mut neg_p = false;
                 if '-' == iter.as_str().chars().next()? {
@@ -225,6 +221,7 @@ fn parse_number(iter: &mut Chars) -> Option<Number> {
                     p_number = p_number.saturating_neg();
                 };
                 number.push_e(p_number, 2.0);
+                break;
             } else {
                 break;
             }
@@ -249,6 +246,7 @@ fn parse_number(iter: &mut Chars) -> Option<Number> {
                     return None;
                 }
             } else if c == 'e' {
+                iter.next();
                 let mut e_number: i32 = 0;
                 let mut neg_e = false;
                 if '-' == iter.as_str().chars().next()? {
@@ -268,6 +266,7 @@ fn parse_number(iter: &mut Chars) -> Option<Number> {
                     e_number = e_number.saturating_neg();
                 };
                 number.push_e(e_number, 10.0);
+                break;
             } else {
                 break;
             }

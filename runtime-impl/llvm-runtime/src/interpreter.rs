@@ -266,8 +266,10 @@ fn get_callback<'ctx>(
     let instruction_ptr = unsafe { builder.build_in_bounds_gep(instructions, &[context.i64_type().const_int(0, true), opcode], "instruction_ptr") };
     let instruction: CallableValue<'ctx> = builder.build_load(instruction_ptr, "instruction").into_pointer_value().try_into().unwrap();
     let call = builder.build_call(instruction, &[regs.into(), ip.into()], "call");
+    call.set_call_convention(18); // tailcc
     builder.build_store(return_ptr, call.try_as_basic_value().unwrap_left());
     builder.build_call(module.get_function("llvm.stackrestore").unwrap(), &[stack_state.into()], "restore");
+
     builder.build_return(None);
     return Ok(function.as_global_value().as_pointer_value());
 }

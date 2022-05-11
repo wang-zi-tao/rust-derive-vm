@@ -34,29 +34,9 @@ fn test_ll1() -> Fallible<()> {
 }
 #[test]
 fn test_lalr1() -> Fallible<()> {
-    do_test_lalr1()
-}
-fn do_test_lalr1() -> Fallible<()> {
     lalr1_analyser! {
-      parser:LexicalDemo->f64{
-        start=>f64 ->{[expr(e)]=>Ok(e);},
-        expr=>f64 ->{
-          [Float(v1)]=>Ok(v1);
-          | [expr(v2),Add,Float(v1)]=>Ok(v1+v2);
-        },
-      }
-    };
-    let r = parser(vec![Float(2.0), Sub, Float(1.0)])?;
-    assert_eq!(r, 1.0);
-    Ok(())
-}
-#[test]
-fn test_lr1() -> Fallible<()> {
-    do_test_lr1()
-}
-fn do_test_lr1() -> Fallible<()> {
-    lr1_analyser! {
       parser:LexicalDemo->String{
+        syn=>f64->{[expr(v)]=>Ok(v);},
         expr=>f64 ->{
           [Float(v1)]=>Ok(v1);
           | [expr(v2),Add,Float(v1)]=>Ok(v1+v2);

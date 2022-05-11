@@ -2185,7 +2185,8 @@ impl<'ctx, 'm> LLVMFunctionBuilder<'ctx> {
         let metadata = &*get_instruction_metadata(instruction_type, &[], None, true)?;
         let function_type = get_instruction_function_type(context);
         let function = module.add_function(name, function_type, None);
-        function.set_call_conventions(8); // fastcc
+        // function.set_call_conventions(8); // fastcc
+        function.set_call_conventions(18); // tailcc
         let basic_block = context.append_basic_block(function, "entry");
         let builder = context.create_builder();
         builder.position_at_end(basic_block);
@@ -2358,6 +2359,7 @@ impl<'ctx, 'm> LLVMFunctionBuilder<'ctx> {
                 builder.build_load(next_instruction_jump_table_address, "next_instruction_address").into_pointer_value().try_into().unwrap();
             let call =
                 builder.build_call(next_instruction, &[function.get_nth_param(0).unwrap().into(), next_instruction_opcode_ptr.into()], "call_next_instruction");
+            call.set_call_convention(18); // tailcc
             call.set_tail_call(true);
             builder.build_return(Some(&call.try_as_basic_value().unwrap_left()));
         } else {

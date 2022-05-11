@@ -1,4 +1,3 @@
-#![feature(io_read_to_string)]
 use std::{
     io::{stdin, Write},
     sync::Arc,
@@ -79,12 +78,7 @@ mod tests {
 
     #[test]
     fn run_lua_script() -> Fallible<()> {
-        let code = "local a, b, n = 1, 1, 1000000000 while a < n do
-  a = a + b a = a + b a = a + b a = a + b a = a + b a = a + b a = a + b a = a + b a = a + b a = a + b a = a + b a = a + b a = a + b a = a + b a = a + b a = a + b a = a + b a = a + b a = a + b a = a + b
-  a = a + b a = a + b a = a + b a = a + b a = a + b a = a + b a = a + b a = a + b a = a + b a = a + b a = a + b a = a + b a = a + b a = a + b a = a + b a = a + b a = a + b a = a + b a = a + b a = a + b
-  a = a + b a = a + b a = a + b a = a + b a = a + b a = a + b a = a + b a = a + b a = a + b a = a + b a = a + b a = a + b a = a + b a = a + b a = a + b a = a + b a = a + b a = a + b a = a + b a = a + b
-  a = a + b a = a + b a = a + b a = a + b end
-";
+        let code = "for i=1,1 do print(i) end";
         env_logger::init();
         vm_lua::set_signal_handler();
         let lua_state = vm_lua::new_state()?;

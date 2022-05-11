@@ -1,44 +1,3 @@
-//! ```
-//! make_instruction![
-//!       NOP->bootstrap::NOP,
-//!       ADD->fn<const c:i64>(i1:i64,i2:i64)->{i2:i64}{
-//!         entry:{
-//!           %i2=bootstrap::Add<c>(%i1,%i2);
-//!         }
-//!       },
-//! ]
-//! ```
-//!
-//! ```
-//!  enum ADD {}
-//!  impl ItemOf<InstructionSetDemo> for ADD {
-//!      const OPCODE:usize =1 ;
-//!  }
-//!  impl ADD {
-//!      pub fn emit<S>(
-//!          b: &mut Builder,
-//!          int_kind: IntKind,
-//!          arg0: Register,
-//!          arg1: Register,
-//!      ) -> Fallible<()>
-//!      where
-//!          Self: ItemOf<S>,
-//!      {
-//!          unsafe {
-//!              b.put_opcode(<Self as ItemOf<S>>::get_opcode())?;
-//!              b.align(2);
-//!              b.put_int_type(int_kind)?;
-//!              b.put_register(arg0)?;
-//!              b.put_register(arg1)?;
-//!          }
-//!          Ok(())
-//!      }
-//!  }
-//!  impl Instruction for ADD {
-//!      const instruction_type:InstructionType= ... ;
-//!  }
-//! ```
-
 use std::{
     collections::{HashMap, HashSet},
     iter::FromIterator,
@@ -616,7 +575,7 @@ impl MetadataDeclaration {
     fn generate_emit(&self) -> Result<TokenStream2> {
         let mut get_align = Vec::new();
         let mut emit_args = Vec::new();
-        let mut emit_generic = Vec::new();
+        let mut emit_value = Vec::new();
         let mut arg_set = HashSet::new();
         if self.generics.iter().any(|gen| matches!(&gen.kind, &GenericsDeclarationKind::Type)) {
             return Ok(quote! {});
@@ -629,7 +588,7 @@ impl MetadataDeclaration {
                     emit_args.push(quote! {
                       #name : <<#value_type as vm_core::TypeDeclaration>::Impl as vm_core::MoveIntoObject<'l>>::Carrier
                     });
-                    emit_generic.push(quote! {
+                    emit_value.push(quote! {
                         builder.codes().borrow_mut(token).align(<#value_type as vm_core::TypeDeclaration>::LAYOUT.align());
                         <<#value_type as vm_core::TypeDeclaration>::Impl as vm_core::MoveIntoObject<'l>>::append( #name, builder.codes(),token);
                     });
@@ -640,13 +599,19 @@ impl MetadataDeclaration {
                     emit_args.push(quote! {
                       #name : &runtime::code::BlockBuilder<'l,S>
                     });
-                    emit_generic.push(quote! {
+                    emit_value.push(quote! {
                       builder.codes().borrow_mut(token).align(4);
                       builder.push_block_offset(token,#name);
                     });
                 }
                 _ => unreachable!(),
             };
+        }
+        if !self.args.is_empty() || !self.returns.is_empty() {
+            get_align.push(quote! { align=usize::max(align, 2); });
+            emit_value.push(quote! {
+                builder.codes().borrow_mut(token).align(2);
+            });
         }
         for arg in &self.args {
             let value_type = &arg.ty;
@@ -655,8 +620,7 @@ impl MetadataDeclaration {
             emit_args.push(quote! {
               #name : &runtime::code::Register<#value_type,A>
             });
-            emit_generic.push(quote! {
-                builder.codes().borrow_mut(token).align(2);
+            emit_value.push(quote! {
                 builder.emit_register(token,#name);
             });
             arg_set.insert(arg.name.to_string());
@@ -669,8 +633,7 @@ impl MetadataDeclaration {
                 emit_args.push(quote! {
                   #name : &runtime::code::Register<#value_type,A>
                 });
-                emit_generic.push(quote! {
-                    builder.codes().borrow_mut(token).align(2);
+                emit_value.push(quote! {
                     builder.emit_register(token,#name);
                 });
                 arg_set.insert(ret.name.to_string());
@@ -696,7 +659,7 @@ impl MetadataDeclaration {
               let mut align=1;
               #(#get_align)*
               builder.codes().borrow_mut(token).align(align);
-              #(#emit_generic)*
+              #(#emit_value)*
             }
             Ok(())
           }

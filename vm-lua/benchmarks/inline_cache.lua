@@ -1,7 +1,20 @@
-local a, b, n, c = 1, 1, 1000000000
+local a, b, n, c = 1, 16, 1000000000
 while a < n do
   a = a + b
   c = print
+  c = print
+  c = print
+  c = print
+  c = print
+  c = print
+  c = print
+  c = print
+  c = print
+  c = print
+  c = print
+  c = print
+  c = print
+  c = print
+  c = print
+  c = print
 end
--- bench: 11.097154608s
--- clua : 9.257

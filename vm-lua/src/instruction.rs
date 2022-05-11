@@ -1,5 +1,6 @@
 use super::mem::*;
 use log::debug;
+use log::error;
 use runtime::instructions::{bootstrap::{self as b, CallState, GetLength, MakeSlice, Read, SetState, Write}, Instruction};
 use runtime_extra::{self as e, instructions::*, ty::*};
 use std::{cell::UnsafeCell, marker::PhantomData, mem::MaybeUninit};
@@ -333,8 +334,7 @@ pub extern "C" fn __vm_lua_lib_illegal_instruction() {
 pub struct GetMetaValue<ReadMetaFunction: Instruction>(PhantomData<ReadMetaFunction>);
 make_instruction! { I64ToValue->fn(i:I64)->(v:LuaValue){
   entry:{
-    %high=I64And(%i,I64Not(0x07ff_ffff_ffff_ffff));
-    if BoolOr(I64Eq(%high,0),I64Eq(%high,I64Not(0x07ff_ffff_ffff_ffff))) %small %big;
+    if I64Eq(%i,I64Shr(I64Shl(%i,4),4)) %small %big;
   },
   small:{ %v=lua_value::EncodeInteger(I64Shl(%i,4)); },
   big:{
@@ -423,7 +423,7 @@ pub unsafe fn extend_to_buffer(buffer: &mut Vec<u8>, mut i: Direct<LuaValue>) ->
         buffer.extend(v.to_string().as_bytes());
     } else if let Some(v) = i.read_string() {
         buffer.extend(v.as_ref().ref_data().as_slice().iter().map(|d| d.0));
-    } else if let Some(v) = i.read_nil() {
+    } else if let Some(_v) = i.read_nil() {
         buffer.extend(b"nil");
     } else if let Some(v) = i.read_boolean() {
         let v = v.0 != 0;
@@ -435,6 +435,7 @@ pub unsafe fn extend_to_buffer(buffer: &mut Vec<u8>, mut i: Direct<LuaValue>) ->
     } else if let Some(v) = i.read_closure() {
         buffer.extend(format!("function: {:p}", v.as_ptr()).bytes());
     } else {
+        error!("invalid lua value: {:X?}", &i.0 .0);
         return false;
     }
     true
@@ -520,21 +521,14 @@ make_instruction! {
         if F64Le(%state,%end) %loop %break;
     }}
 }
-make_instruction! { ForLoopInit->fn<block predict>(start:LuaValue,end:LuaValue)->(end:LuaState,state:LuaValue){
+make_instruction! { ForLoopInit->fn<block predict>(start:LuaValue,end:LuaValue)->(end:LuaValue,state:LuaValue){
     entry:{ if BoolOr(IsInteger(%start),IsInteger(%end)) %use_int %use_float; },
-    use_int:{
-        %state=MoveValue(%start);
-        PrintDebug(%start);
-        PrintDebug(%end);
-        PrintDebug(%state);
-        branch %predict;},
-    use_float:{
-        %state=ValueToFloatValue(%start);
-        %end=ValueToFloatValue(%end);
-        branch %predict; },
+    use_int:{ %state=MoveValue(%start); %end=MoveValue(%end); branch %predict;},
+    use_float:{ %state=ValueToFloatValue(%start); %end=ValueToFloatValue(%end); branch %predict; },
 }}
 make_instruction! { ForLoopJump->fn<block loop,block break>(end:LuaValue,state:LuaValue)->(state:LuaValue){
-    entry:{ if IsInteger(%state) %use_int %use_float; },
+    entry:{
+        if IsInteger(%state) %use_int %use_float; },
     use_int:{if I64Le(GetIntegerValue(%state),GetIntegerValue(%end)) %loop %break;},
     use_float:{if F64Le(ToFloat(%state),ToFloat(%end)) %loop %break;},
 }}
@@ -547,7 +541,7 @@ make_instruction! {ForLoopIncrease->fn<block predict>(v:LuaValue)->(v:LuaValue){
         %v=F64ToValue(F64Add(ToFloat(%v),1.0));
         branch %predict; },
 }}
-make_instruction! { ForLoopStepInit->fn<block predict>(start:LuaValue,end:LuaValue,step:LuaValue)->(end:LuaState,step:LuaValue,state:LuaValue){
+make_instruction! { ForLoopStepInit->fn<block predict>(start:LuaValue,end:LuaValue,step:LuaValue)->(end:LuaValue,step:LuaValue,state:LuaValue){
     entry:{if F64Eq(0.0,ToFloat(%state)) %invalid %valid;},
     invalid:{%state=ConstNil();ThrowError();},
     valid:{ if BoolOr(IsInteger(%start),IsInteger(%end)) %use_int %use_float; },
@@ -859,14 +853,16 @@ pub struct NegationBinaryInstruction<
         },
         DoubleSmallInteger:{
             entry:{
-                %i1_tag=lua_value::GetTag(%i1);
-                %i2_tag=lua_value::GetTag(%i2);
+                %i1c=MoveValue(%i1);
+                %i2c=MoveValue(%i2);
+                %i1_tag=lua_value::GetTag(%i1c);
+                %i2_tag=lua_value::GetTag(%i2c);
+                %i1_integer_value=I64Shr(lua_value::DecodeIntegerUnchecked(%i1c),4);
+                %i2_integer_value=I64Shr(lua_value::DecodeIntegerUnchecked(%i2c),4);
                 if UsizeLt(UsizeOr(%i1_tag,%i2_tag),b::IntTruncate<12,7>(1)) %double_integer %other; },
             double_integer:{
-                %i1_integer_value=I64Shr(lua_value::DecodeIntegerUnchecked(%i1),4);
-                %i2_integer_value=I64Shr(lua_value::DecodeIntegerUnchecked(%i2),4);
                 %i2=IntegerInstruction(%i1_integer_value,%i2_integer_value); },
-            other:{  %i2=CallState<%Init>(%i1,%i2); },
+            other:{  %i2=CallState<%Init>(%i1c,%i2c); },
         },
         DoubleInteger:{
             entry:{

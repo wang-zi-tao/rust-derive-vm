@@ -1704,6 +1704,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "vm-wenyan"
+version = "0.1.0"
+dependencies = [
+ "env_logger 0.9.0",
+ "failure",
+ "lexical",
+ "lexical-derive",
+ "log",
+ "structopt",
+ "syntax",
+ "syntax-derive",
+ "vm-lua",
+]
+
+[[package]]
 name = "wasi"
 version = "0.10.2+wasi-snapshot-preview1"
 source = "registry+https://github.com/rust-lang/crates.io-index"

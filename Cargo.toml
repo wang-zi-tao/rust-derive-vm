@@ -21,5 +21,6 @@ members = [
   "syntax-test",
   "vm-lua",
   "vm-lua-shell",
+  "vm-wenyan",
   # "vm-jvm",
 ]

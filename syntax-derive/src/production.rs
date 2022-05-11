@@ -282,7 +282,9 @@ pub(crate) fn parse_syntax_declaration(syntax: SyntaxDeclaration) -> Result<Synt
                     MatchValueDeclaration::Some { token, .. } => Some(token.clone()),
                     MatchValueDeclaration::None => None,
                 };
-                let symbol = if symbol_declaration.ident.to_string().chars().next().unwrap().is_uppercase() {
+                let symbol = if let Some(nonterminal) = nonterminals.get(&symbol_declaration.ident) {
+                    Symbol::NonTerminal(nonterminal.clone())
+                } else {
                     let terminal = terminals
                         .entry(symbol_declaration.ident.clone())
                         .or_insert_with(|| {
@@ -295,10 +297,6 @@ pub(crate) fn parse_syntax_declaration(syntax: SyntaxDeclaration) -> Result<Synt
                         })
                         .clone();
                     Symbol::Terminal(terminal)
-                } else {
-                    Symbol::NonTerminal(
-                        nonterminals.get(&symbol_declaration.ident).ok_or_else(|| Error::new(symbol_declaration.ident.span(), "unknown nonterminal"))?.clone(),
-                    )
                 };
                 right_part.push((symbol, value))
             }

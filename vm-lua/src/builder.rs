@@ -81,7 +81,7 @@ impl<'l> LuaExpr<'l> {
     pub fn value_reg(&self) -> &Register<LuaValue> {
         match &self.register {
             LuaRegister::Value(r, _) => r,
-            _ => unreachable!(),
+            _ => panic!(),
         }
     }
 }
@@ -315,13 +315,7 @@ impl<'l> LuaContext<'l> {
         &self.current_block
     }
     pub fn split_block(&mut self) -> Fallible<(LuaBlockRef<'l>, LuaBlockRef<'l>)> {
-        let r = ((self.current_block.clone(), self.new_block().clone()));
-        debug!(
-            "split_block {:?},{:?}",
-            r.0.borrow(self.token()).builder(),
-            r.1.borrow(self.token()).builder()
-        );
-        Ok(r)
+        Ok((self.current_block.clone(), self.new_block().clone()))
     }
     pub fn current_function(&self) -> &LuaFunctionBuilder<'l> { self.current_function.borrow(self.token()) }
     pub fn current_function_mut(&mut self) -> &mut LuaFunctionBuilder<'l> {
@@ -414,17 +408,19 @@ impl<'l> LuaContext<'l> {
                             &from,
                             &value
                         );
-                        match (&from.register, &to.register) {
-                            (LuaRegister::Integer(r1), LuaRegister::Integer(r2)) => {
-                                MoveI64::emit(&self.current_builder, &mut self.token, r1, r2)?;
+                        if from.register.reg_index() != to.register.reg_index() {
+                            match (&from.register, &to.register) {
+                                (LuaRegister::Integer(r1), LuaRegister::Integer(r2)) => {
+                                    MoveI64::emit(&self.current_builder, &mut self.token, r1, r2)?;
+                                }
+                                (LuaRegister::Float(r1), LuaRegister::Float(r2)) => {
+                                    MoveF64::emit(&self.current_builder, &mut self.token, r1, r2)?;
+                                }
+                                (LuaRegister::Value(r1, _), LuaRegister::Value(r2, _)) => {
+                                    MoveValue::emit(&self.current_builder, &mut self.token, r1, r2)?;
+                                }
+                                _ => unreachable!(),
                             }
-                            (LuaRegister::Float(r1), LuaRegister::Float(r2)) => {
-                                MoveF64::emit(&self.current_builder, &mut self.token, r1, r2)?;
-                            }
-                            (LuaRegister::Value(r1, _), LuaRegister::Value(r2, _)) => {
-                                MoveValue::emit(&self.current_builder, &mut self.token, r1, r2)?;
-                            }
-                            _ => unreachable!(),
                         }
                     } else {
                         let value = self.to_value(value)?;
@@ -461,8 +457,9 @@ impl<'l> LuaContext<'l> {
         }
         Ok(())
     }
-    pub fn insert_break_point(&mut self) -> Fallible<()> {
-        BreakPoint::emit(&self.current_builder, &mut self.token)?;
+    pub fn insert_break_point(&mut self, block: &LuaBlockRef<'l>) -> Fallible<()> {
+        let builder = &block.borrow(self.token()).clone().builder().clone();
+        BreakPoint::emit(&builder, &mut self.token)?;
         Ok(())
     }
 
@@ -1800,6 +1797,7 @@ impl<'l> LuaContext<'l> {
         let start = self.to_value(start)?;
         let end = self.to_value(end)?;
         let state_reg = state.value_reg();
+        debug!("for_ {:?} = {:?},{:?}", &state_reg, &start, &end);
         let predicate_block_begin = &predicate_block_begin.borrow(self.token()).builder().clone();
         let predicate_block_end = &predicate_block_end.borrow(self.token()).builder().clone();
         let loop_block_begin = &loop_block_begin.borrow(self.token()).builder().clone();
