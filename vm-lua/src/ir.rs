@@ -40,7 +40,7 @@ make_instruction_set! {
     BuildTable->i::BuildTable,//80
     NewClosure->i::NewClosure,//81
     ForLoopJump->i::ForLoopJump,ForLoopInit->i::ForLoopInit,ForLoopIncrease->i::ForLoopIncrease,//84
-    ForLoopStepJump->i::ForLoopStepJump,ForLoopStepInit->i::ForLoopStepInit,ForLoopStepIncrease->i::ForLoopStepIncrease,//87
+    ForStepLoopJump->i::ForStepLoopJump,ForStepLoopInit->i::ForStepLoopInit,ForStepLoopIncrease->i::ForStepLoopIncrease,//87
     IfBranch->i::BranchIf,//88
     GetUpVariable->i::GetUpVariable, SetUpVariable->i::SetUpVariable, SetUpValue->i::SetUpValue,//91
     MakeSlice->b::MakeSlice,

@@ -17,6 +17,7 @@ fn main() -> Fallible<()> {
     vm_lua::set_signal_handler();
     let opt = cli::Opt::from_args();
     let lua_state = vm_lua::new_state()?;
+    let _ = &*LUA_INTERPRETER;
     info!("wangzi lua vm v1.0.0");
     let run = move |lua_state: vm_lua::mem::LuaStateReference, code: String, opt: &Opt| {
         let bench = opt.bench;
@@ -78,7 +79,7 @@ mod tests {
 
     #[test]
     fn run_lua_script() -> Fallible<()> {
-        let code = "for i=1,1 do print(i) end";
+        let code = "for i=1,1024,1.0 do print(i) end";
         env_logger::init();
         vm_lua::set_signal_handler();
         let lua_state = vm_lua::new_state()?;

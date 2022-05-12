@@ -1794,6 +1794,8 @@ impl<'l> LuaContext<'l> {
         (loop_block_end, post_block_begin): (LuaBlockRef<'l>, LuaBlockRef<'l>),
     ) -> Fallible<()> {
         trace!("for_");
+        let pre_block_end = &init_block_end.borrow(self.token()).builder().clone();
+        self.current_builder = pre_block_end.clone();
         let start = self.to_value(start)?;
         let end = self.to_value(end)?;
         let state_reg = state.value_reg();
@@ -1802,8 +1804,16 @@ impl<'l> LuaContext<'l> {
         let predicate_block_end = &predicate_block_end.borrow(self.token()).builder().clone();
         let loop_block_begin = &loop_block_begin.borrow(self.token()).builder().clone();
         let loop_block_end = &loop_block_end.borrow(self.token()).builder().clone();
-        let pre_block_end = &init_block_end.borrow(self.token()).builder().clone();
         let post_block_begin = &post_block_begin.borrow(self.token()).builder().clone();
+        debug!(
+            "init_block:{:?} ({:?},{:?}) do {:?},{:?} end {:?}",
+            pre_block_end.codes(),
+            predicate_block_begin.codes(),
+            predicate_block_end.codes(),
+            loop_block_begin.codes(),
+            loop_block_end.codes(),
+            post_block_begin.codes()
+        );
         ForLoopInit::emit(
             pre_block_end,
             &mut self.token,
@@ -1821,6 +1831,7 @@ impl<'l> LuaContext<'l> {
             &state_reg,
         )?;
         ForLoopIncrease::emit(loop_block_end, &mut self.token, predicate_block_begin, &state_reg)?;
+        self.current_builder = post_block_begin.clone();
         Ok(())
     }
     pub fn for_step_head(
@@ -1865,6 +1876,8 @@ impl<'l> LuaContext<'l> {
         (loop_block_end, post_block_begin): (LuaBlockRef<'l>, LuaBlockRef<'l>),
     ) -> Fallible<()> {
         trace!("for_step");
+        let init_block_end = &init_block_end.borrow(self.token()).builder().clone();
+        self.current_builder = init_block_end.clone();
         let start = self.to_value(start)?;
         let end = self.to_value(end)?;
         let step = self.to_value(step)?;
@@ -1873,9 +1886,8 @@ impl<'l> LuaContext<'l> {
         let predicate_block_end = &predicate_block_end.borrow(self.token()).builder().clone();
         let loop_block_begin = &loop_block_begin.borrow(self.token()).builder().clone();
         let loop_block_end = &loop_block_end.borrow(self.token()).builder().clone();
-        let init_block_end = &init_block_end.borrow(self.token()).builder().clone();
         let post_block_begin = &post_block_begin.borrow(self.token()).builder().clone();
-        ForLoopStepInit::emit(
+        ForStepLoopInit::emit(
             init_block_end,
             &mut self.token,
             predicate_block_begin,
@@ -1884,7 +1896,7 @@ impl<'l> LuaContext<'l> {
             step.value_reg(),
             &state_reg,
         )?;
-        ForLoopStepJump::emit(
+        ForStepLoopJump::emit(
             predicate_block_end,
             &mut self.token,
             loop_block_begin,
@@ -1893,13 +1905,14 @@ impl<'l> LuaContext<'l> {
             step.value_reg(),
             &state_reg,
         )?;
-        ForLoopStepIncrease::emit(
+        ForStepLoopIncrease::emit(
             loop_block_end,
             &mut self.token,
             predicate_block_begin,
             &state_reg,
             step.value_reg(),
         )?;
+        self.current_builder = post_block_begin.clone();
         Ok(())
     }
     pub fn for_in_head(
@@ -1947,6 +1960,8 @@ impl<'l> LuaContext<'l> {
         let loop_block_begin = &loop_block_begin.borrow(self.token()).builder().clone();
         let post_block_begin = &post_block_begin.borrow(self.token()).builder().clone();
         let state_less_iter = self.expr_list_to_vec(exprs, 3)?;
+        let init_block_end = &init_block_end.borrow(self.token()).builder().clone();
+        self.current_builder = init_block_end.clone();
         let iter = self.to_value(state_less_iter[0].clone())?;
         let iterable = self.to_value(state_less_iter[1].clone())?;
         let state = self.to_writable_value(state_less_iter[2].clone())?;
@@ -1998,6 +2013,7 @@ impl<'l> LuaContext<'l> {
                 }
             }
         };
+        self.current_builder = post_block_begin.clone();
         Ok(())
     }
     // [t!(function),function_boby(f)]=>ctx.function(f);
