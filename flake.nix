@@ -1,8 +1,7 @@
 {
   inputs.flake-utils.url = "github:numtide/flake-utils";
-  nixpkgs.url = "github:nixos/nixpkgs/release-21.11";
   inputs.fenix.url = "github:nix-community/fenix";
-  outputs = { self, nixpkgs, fenix }:
+  outputs = { self, nixpkgs, fenix, flake-utils }:
     flake-utils.lib.eachDefaultSystem
       (system:
         let pkgs = nixpkgs.legacyPackages.${system}; in
@@ -17,7 +16,7 @@
               glibc
               pkg-config
               lua
-              (fenix.fromToolchainFile {
+              (fenix.packages.${system}.fromToolchainFile {
                 file = ./rust-toolchain.toml;
                 sha256 = "sha256-CNMj0ouNwwJ4zwgc/gAeTYyDYe0botMoaj/BkeDTy4M=";
               })
