@@ -15,3 +15,8 @@ vm-lua={path="../vm-lua"}
 env_logger = "0.9.0"
 log = "0.4.0"
 structopt = "0.3.26"
+ghost-cell = "0.2.2"
+runtime={path="../runtime/"}
+runtime-extra={path="../runtime-extra"}
+vm-core={path="../vm-core"}
+chinese-number = "0.6.4"

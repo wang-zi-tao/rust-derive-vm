@@ -91,9 +91,12 @@ pub enum VaArgs<'l> {
     VaArgs(),
     FunctionCall(LuaExprRef<'l>, Box<LuaExprList<'l>>),
 }
-#[derive(Debug)]
+#[derive(Debug, Builder)]
+#[builder(pattern = "owned")]
 pub struct LuaExprList<'l> {
+    #[builder(default)]
     exprs: Vec<LuaExprRef<'l>>,
+    #[builder(default)]
     va_arg: Option<VaArgs<'l>>,
 }
 
@@ -249,11 +252,13 @@ impl<'l> LuaFunctionBuilder<'l> {
         new_scopt_wraped
     }
 }
+#[macro_export]
 macro_rules! unique_operate_type {
     ($ty:ty $(, $ty1:ty)*) => {
         fn( &BlockBuilder<'l, LuaInstructionSet>, &mut GhostToken<'l>, &Register<$ty> $(,&Register<$ty1>)*) -> Fallible<()>
     };
 }
+#[macro_export]
 macro_rules! binary_operate_type {
     ($ty:ty $(, $ty1:ty)*) => {
         fn( &BlockBuilder<'l, LuaInstructionSet>, &mut GhostToken<'l>, &Register<$ty>, &Register<$ty> $(,&Register<$ty1>)*) -> Fallible<()>
@@ -269,15 +274,15 @@ pub(crate) fn new_ctx<'l>(token: ghost_cell::GhostToken<'l>, lua_state: LuaState
     LuaContext::new(token, lua_state)
 }
 pub struct LuaContext<'l> {
-    pub(crate) token: GhostToken<'l>,
-    pub(crate) packs: Vec<FunctionPack<LuaInstructionSet>>,
-    pub(crate) closure_stack: Vec<LuaFunctionBuilderRef<'l>>,
-    pub(crate) current_function: LuaFunctionBuilderRef<'l>,
-    pub(crate) current_scopt: LuaScoptRef<'l>,
-    pub(crate) current_block: LuaBlockRef<'l>,
-    pub(crate) current_builder: BlockBuilder<'l, LuaInstructionSet>,
-    pub(crate) shape_map: HashMap<(Vec<String>, usize), LuaShapeReference>,
-    pub(crate) lua_state: LuaStateReference,
+    pub token: GhostToken<'l>,
+    pub packs: Vec<FunctionPack<LuaInstructionSet>>,
+    pub closure_stack: Vec<LuaFunctionBuilderRef<'l>>,
+    pub current_function: LuaFunctionBuilderRef<'l>,
+    pub current_scopt: LuaScoptRef<'l>,
+    pub current_block: LuaBlockRef<'l>,
+    pub current_builder: BlockBuilder<'l, LuaInstructionSet>,
+    pub shape_map: HashMap<(Vec<String>, usize), LuaShapeReference>,
+    pub lua_state: LuaStateReference,
 }
 impl<'l> LuaContext<'l> {
     pub fn new(token: GhostToken<'l>, lua_state: LuaStateReference) -> Self {
@@ -488,9 +493,9 @@ impl<'l> LuaContext<'l> {
         };
         Ok(())
     }
-    pub fn const_number(&mut self, number: Number) -> Fallible<LuaExprRef<'l>> {
+    pub fn const_number(&mut self, number: LuaNumberLit) -> Fallible<LuaExprRef<'l>> {
         match number {
-            Number::Integer(int) => {
+            LuaNumberLit::Integer(int) => {
                 let reg = self.alloc_register()?;
                 match int {
                     -1 => ConstM1::emit(&self.current_builder, &mut self.token, &reg),
@@ -502,7 +507,7 @@ impl<'l> LuaContext<'l> {
                     LuaExprBuilder::default().register(LuaRegister::Integer(reg)).build()?,
                 ))
             }
-            Number::Float(float) => {
+            LuaNumberLit::Float(float) => {
                 let reg = self.alloc_register()?;
                 ConstF64::emit(&self.current_builder, &mut self.token, F64(float), &reg)?;
                 Ok(Rc::new(
@@ -1773,6 +1778,11 @@ impl<'l> LuaContext<'l> {
         let reg = self.alloc_register()?;
         let expr = LuaExpr::new_value(reg.clone());
         self.add_local(var, Default::default(), expr.clone())?;
+        let pre_block_end = &init_block_end.borrow(self.token()).builder().clone();
+        self.current_builder = pre_block_end.clone();
+        let start = self.to_value(start)?;
+        let end = self.to_value(end)?;
+        self.current_builder = loop_block_begin.borrow(self.token()).builder().clone();
         Ok((
             start,
             end,
@@ -1794,26 +1804,13 @@ impl<'l> LuaContext<'l> {
         (loop_block_end, post_block_begin): (LuaBlockRef<'l>, LuaBlockRef<'l>),
     ) -> Fallible<()> {
         trace!("for_");
-        let pre_block_end = &init_block_end.borrow(self.token()).builder().clone();
-        self.current_builder = pre_block_end.clone();
-        let start = self.to_value(start)?;
-        let end = self.to_value(end)?;
         let state_reg = state.value_reg();
-        debug!("for_ {:?} = {:?},{:?}", &state_reg, &start, &end);
         let predicate_block_begin = &predicate_block_begin.borrow(self.token()).builder().clone();
         let predicate_block_end = &predicate_block_end.borrow(self.token()).builder().clone();
         let loop_block_begin = &loop_block_begin.borrow(self.token()).builder().clone();
         let loop_block_end = &loop_block_end.borrow(self.token()).builder().clone();
         let post_block_begin = &post_block_begin.borrow(self.token()).builder().clone();
-        debug!(
-            "init_block:{:?} ({:?},{:?}) do {:?},{:?} end {:?}",
-            pre_block_end.codes(),
-            predicate_block_begin.codes(),
-            predicate_block_end.codes(),
-            loop_block_begin.codes(),
-            loop_block_end.codes(),
-            post_block_begin.codes()
-        );
+        let pre_block_end = &init_block_end.borrow(self.token()).builder().clone();
         ForLoopInit::emit(
             pre_block_end,
             &mut self.token,
@@ -1831,7 +1828,6 @@ impl<'l> LuaContext<'l> {
             &state_reg,
         )?;
         ForLoopIncrease::emit(loop_block_end, &mut self.token, predicate_block_begin, &state_reg)?;
-        self.current_builder = post_block_begin.clone();
         Ok(())
     }
     pub fn for_step_head(
@@ -1853,6 +1849,12 @@ impl<'l> LuaContext<'l> {
         let reg = self.alloc_register()?;
         let expr = LuaExpr::new_value(reg.clone());
         self.add_local(var, Default::default(), expr.clone())?;
+        let init_block_end_builder = &init_block_end.borrow(self.token()).builder().clone();
+        self.current_builder = init_block_end_builder.clone();
+        let start = self.to_value(start)?;
+        let end = self.to_value(end)?;
+        let step = self.to_value(step)?;
+        self.current_builder = loop_block_begin.borrow(self.token()).builder().clone();
         Ok((
             start,
             end,
@@ -1876,17 +1878,23 @@ impl<'l> LuaContext<'l> {
         (loop_block_end, post_block_begin): (LuaBlockRef<'l>, LuaBlockRef<'l>),
     ) -> Fallible<()> {
         trace!("for_step");
-        let init_block_end = &init_block_end.borrow(self.token()).builder().clone();
-        self.current_builder = init_block_end.clone();
-        let start = self.to_value(start)?;
-        let end = self.to_value(end)?;
-        let step = self.to_value(step)?;
         let state_reg = state.value_reg();
+        debug!("for_ {:?} = {:?},{:?},{:?}", &state_reg, &start, &end, &step);
         let predicate_block_begin = &predicate_block_begin.borrow(self.token()).builder().clone();
         let predicate_block_end = &predicate_block_end.borrow(self.token()).builder().clone();
         let loop_block_begin = &loop_block_begin.borrow(self.token()).builder().clone();
         let loop_block_end = &loop_block_end.borrow(self.token()).builder().clone();
         let post_block_begin = &post_block_begin.borrow(self.token()).builder().clone();
+        let init_block_end = &init_block_end.borrow(self.token()).builder().clone();
+        debug!(
+            "init_block:{:?} ({:?},{:?}) do {:?},{:?} end {:?}",
+            init_block_end.codes(),
+            predicate_block_begin.codes(),
+            predicate_block_end.codes(),
+            loop_block_begin.codes(),
+            loop_block_end.codes(),
+            post_block_begin.codes()
+        );
         ForStepLoopInit::emit(
             init_block_end,
             &mut self.token,
@@ -1912,7 +1920,6 @@ impl<'l> LuaContext<'l> {
             &state_reg,
             step.value_reg(),
         )?;
-        self.current_builder = post_block_begin.clone();
         Ok(())
     }
     pub fn for_in_head(
@@ -1935,6 +1942,17 @@ impl<'l> LuaContext<'l> {
             self.add_local(var, Default::default(), expr.clone())?;
             new_vars.push(expr);
         }
+        let pre_block_end = &init_block_end.borrow(self.token()).builder().clone();
+        self.current_builder = pre_block_end.clone();
+        let state_less_iter = self.expr_list_to_vec(exprs, 3)?;
+        let iter = self.to_value(state_less_iter[0].clone())?;
+        let iterable = self.to_value(state_less_iter[1].clone())?;
+        let state = self.to_writable_value(state_less_iter[2].clone())?;
+        let exprs = LuaExprList {
+            exprs: vec![iter, iterable, state],
+            va_arg: None,
+        };
+        self.current_builder = loop_block_begin.borrow(self.token()).builder().clone();
         Ok((
             exprs,
             (init_block_end, predicate_block_begin),
@@ -1961,7 +1979,6 @@ impl<'l> LuaContext<'l> {
         let post_block_begin = &post_block_begin.borrow(self.token()).builder().clone();
         let state_less_iter = self.expr_list_to_vec(exprs, 3)?;
         let init_block_end = &init_block_end.borrow(self.token()).builder().clone();
-        self.current_builder = init_block_end.clone();
         let iter = self.to_value(state_less_iter[0].clone())?;
         let iterable = self.to_value(state_less_iter[1].clone())?;
         let state = self.to_writable_value(state_less_iter[2].clone())?;
@@ -2013,7 +2030,6 @@ impl<'l> LuaContext<'l> {
                 }
             }
         };
-        self.current_builder = post_block_begin.clone();
         Ok(())
     }
     // [t!(function),function_boby(f)]=>ctx.function(f);
@@ -2185,7 +2201,7 @@ impl<'l> LuaContext<'l> {
         expr2: LuaExprRef<'l>,
         emit_int: Option<binary_operate_type!(e::I64)>,
         emit_float: Option<binary_operate_type!(e::F64)>,
-        emit_object: binary_operate_type!(LuaValue),
+        emit_value: binary_operate_type!(LuaValue),
     ) -> Fallible<LuaExprRef<'l>> {
         let operate_kind = Self::trans_binary_type(emit_int.is_some(), emit_float.is_some(), &expr1, &expr2);
         let expr1 = Self::transform_expr(self, expr1, operate_kind)?;
@@ -2201,7 +2217,7 @@ impl<'l> LuaContext<'l> {
                 LuaRegister::Float(r2.clone())
             }
             (LuaRegister::Value(r1, _), LuaRegister::Value(r2, _)) => {
-                emit_object(&self.current_builder, &mut self.token, r1, r2)?;
+                emit_value(&self.current_builder, &mut self.token, r1, r2)?;
                 LuaRegister::Value(r2.clone(), None)
             }
             _ => unreachable!(),
@@ -2214,7 +2230,7 @@ impl<'l> LuaContext<'l> {
         expr2: LuaExprRef<'l>,
         emit_int: Option<binary_operate_type!(e::I64, LuaValue)>,
         emit_float: Option<binary_operate_type!(e::F64, LuaValue)>,
-        emit_object: binary_operate_type!(LuaValue),
+        emit_value: binary_operate_type!(LuaValue),
     ) -> Fallible<LuaExprRef<'l>> {
         let operate_kind = Self::trans_binary_type(emit_int.is_some(), emit_float.is_some(), &expr1, &expr2);
         let expr1 = Self::transform_expr(self, expr1, operate_kind)?;
@@ -2232,7 +2248,7 @@ impl<'l> LuaContext<'l> {
             }
             (LuaRegister::Value(r1, _), LuaRegister::Value(r2, _)) => {
                 let expr2 = self.to_writable(expr2)?;
-                emit_object(&self.current_builder, &mut self.token, r1, expr2.value_reg())?;
+                emit_value(&self.current_builder, &mut self.token, r1, expr2.value_reg())?;
                 expr2
             }
             _ => unreachable!(),
@@ -2275,7 +2291,7 @@ impl<'l> LuaContext<'l> {
         let writeable = self.to_writable(expr)?;
         self.to_value(writeable)
     }
-    fn to_value(&mut self, expr: LuaExprRef<'l>) -> Fallible<LuaExprRef<'l>> {
+    pub fn to_value(&mut self, expr: LuaExprRef<'l>) -> Fallible<LuaExprRef<'l>> {
         Ok(match &expr.register {
             LuaRegister::Integer(r) => {
                 let new_reg = self.alloc_register()?;
@@ -2292,7 +2308,7 @@ impl<'l> LuaContext<'l> {
             _ => expr,
         })
     }
-    fn to_writable(&mut self, mut expr: LuaExprRef<'l>) -> Fallible<LuaExprRef<'l>> {
+    pub fn to_writable(&mut self, mut expr: LuaExprRef<'l>) -> Fallible<LuaExprRef<'l>> {
         match &expr.lifetime {
             ExprLifeTimeKind::Own => Ok(expr),
             ExprLifeTimeKind::COW => {
@@ -2323,18 +2339,18 @@ impl<'l> LuaContext<'l> {
             }
         }
     }
-    fn alloc_register<T: TypeDeclaration>(&mut self) -> Fallible<Register<T>> {
+    pub fn alloc_register<T: TypeDeclaration>(&mut self) -> Fallible<Register<T>> {
         BuddyRegisterPool::alloc(self.current_function().register_pool.clone())
             .ok_or_else(|| format_err!("not left register"))
     }
-    fn alloc_array<T: TypeDeclaration>(&mut self, len: usize) -> Fallible<u16> {
+    pub fn alloc_array<T: TypeDeclaration>(&mut self, len: usize) -> Fallible<u16> {
         self.current_function_mut()
             .register_pool
             .borrow_mut()
             .raw_alloc(len * T::LAYOUT.into_flexible_array().flexible_size() + size_of::<usize>())
             .ok_or_else(|| format_err!("not left register"))
     }
-    fn free_array<T: TypeDeclaration>(&mut self, len: usize, reg: u16) {
+    pub fn free_array<T: TypeDeclaration>(&mut self, len: usize, reg: u16) {
         self.current_function_mut().register_pool.borrow_mut().raw_free(
             len * T::LAYOUT.into_flexible_array().flexible_size() + size_of::<usize>(),
             reg,

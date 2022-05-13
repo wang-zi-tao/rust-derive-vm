@@ -18,7 +18,7 @@ fn main() -> Fallible<()> {
     let opt = cli::Opt::from_args();
     let lua_state = vm_lua::new_state()?;
     let _ = &*LUA_INTERPRETER;
-    info!("wangzi lua vm v1.0.0");
+    info!("wangzi lua vm {}", &env!("CARGO_PKG_VERSION"));
     let run = move |lua_state: vm_lua::mem::LuaStateReference, code: String, opt: &Opt| {
         let bench = opt.bench;
         match std::thread::spawn(move || {

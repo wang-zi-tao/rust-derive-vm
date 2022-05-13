@@ -524,7 +524,7 @@ fn do_lexical_derive(s: synstructure::Structure) -> Result<proc_macro2::TokenStr
                     #regex_match
                     // match by function
                     #fn_match
-                    Err(::lexical::_format_err!("unexpected lexical"))?;
+                    Err(::lexical::_format_err!("unexpected lexical :{}",chars.clone().take(32).collect::<std::string::String>()))?;
                   }
                   index+=1;
                 }

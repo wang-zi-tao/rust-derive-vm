@@ -19,3 +19,4 @@ failure = "0.1.8"
 failure_derive = "0.1.8"
 lazy_static = "1.1.1"
 lexical={path="../lexical"}
+serde_tokenstream = "0.1.3"

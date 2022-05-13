@@ -540,26 +540,39 @@ make_instruction! { ForStepLoopInit->fn<block predict>(start:LuaValue,end:LuaVal
     entry:{
         if F64Eq(0.0,ToFloat(%step)) %invalid %valid;},
     invalid:{%state=ConstNil();ThrowError();branch %predict;},
-    valid:{ if BoolOr(BoolOr(IsInteger(%start),IsInteger(%end)),IsInteger(%step)) %use_int %use_float; },
+    valid:{ if BoolAnd(BoolAnd(IsInteger(%start),IsInteger(%end)),IsInteger(%step)) %use_int %use_float; },
     use_int:{ %state=MoveValue(%start); branch %predict;},
     use_float:{
-        BreakPoint();
         %state=ValueToFloatValue(%start);
         %end=ValueToFloatValue(%end);
         %step=ValueToFloatValue(%step);
+        PrintDebug(%state);
         branch %predict; },
 }}
 make_instruction! { ForStepLoopJump->fn<block loop,block break>(end:LuaValue,step:LuaValue,state:LuaValue)->(state:LuaValue){
-    entry:{ if IsInteger(%state) %use_int %use_float; },
+    entry:{
+        PrintDebug(%end);
+        PrintDebug(%state);
+        PrintDebug(%step);
+        if IsInteger(%state) %use_int %use_float; },
     use_int:{if I64Ge(GetIntegerValue(%step),0) %use_int_pos %use_int_neg;},
     use_int_pos:{if I64Le(GetIntegerValue(%state),GetIntegerValue(%end)) %loop %break;},
-    use_int_neg:{if I64Gt(GetIntegerValue(%state),GetIntegerValue(%end)) %loop %break;},
-    use_float:{if F64Gt(ToFloat(%step),0.0) %use_float_pos %use_float_neg;},
-    use_float_pos:{if F64Le(ToFloat(%state),ToFloat(%end)) %loop %break;},
-    use_float_neg:{if F64Gt(ToFloat(%state),ToFloat(%end)) %loop %break;},
+    use_int_neg:{if I64Ge(GetIntegerValue(%state),GetIntegerValue(%end)) %loop %break;},
+    use_float:{
+        PrintDebug(%end);
+        PrintDebug(%state);
+        PrintDebug(%step);
+        if F64Gt(ToFloat(%step),0.0) %use_float_pos %use_float_neg;},
+    use_float_pos:{
+        PrintDebug(%end);
+        PrintDebug(%state);
+        PrintDebug(%step);
+        if F64Le(ToFloat(%state),ToFloat(%end)) %loop %break;},
+    use_float_neg:{if F64Ge(ToFloat(%state),ToFloat(%end)) %loop %break;},
 }}
 make_instruction! {ForStepLoopIncrease->fn<block predict>(v:LuaValue,step:LuaValue)->(v:LuaValue){
-    entry:{ if IsInteger(%v) %use_int %use_float; },
+    entry:{
+        if IsInteger(%v) %use_int %use_float; },
     use_int:{
         %v=I64ToValue(I64Add(GetIntegerValue(%v),GetIntegerValue(%step)));
         branch %predict; },

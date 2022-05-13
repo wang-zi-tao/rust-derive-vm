@@ -293,7 +293,6 @@ lazy_static! {
 // pub(crate) static GLOBALH_EAP: GlobalHeap = new_global_heap();
 #[inline(always)]
 pub fn try_alloc<'a>(ty: &RegistedType) -> AllocResult<NonNull<u8>> {
-    println!("alloc");
     unsafe {
         match ty.allocation_strategy.load() {
             AllocationStrategy::Small | AllocationStrategy::SmallUnsized => LOCAL_HEAP_POOL.with(|this| {

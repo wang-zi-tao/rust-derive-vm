@@ -23,7 +23,7 @@
             ];
             LLVM_SYS_100_PREFIX = "${pkgs.llvmPackages_10.llvm}";
             RUST_LOG = "trace";
-            ENABLE_MACRO_CACHE = "1";
+            # ENABLE_MACRO_CACHE = "1";
             # LD_PRELOAD="${pkgs.glibc}/lib";
           };
         }

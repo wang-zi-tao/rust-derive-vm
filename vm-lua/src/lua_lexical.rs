@@ -139,47 +139,47 @@ fn parse_single_line_annotation(_iter: &mut Chars) -> Option<String> {
     todo!();
 }
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub enum Number {
+pub enum LuaNumberLit {
     Integer(i64),
     Float(f64),
 }
 
-impl Number {
+impl LuaNumberLit {
     pub fn push(&mut self, i: i64, base: i64) {
         match self {
-            Number::Integer(f) => {
+            LuaNumberLit::Integer(f) => {
                 if let Some(t) = f.checked_mul(base).and_then(|f| f.checked_add(i)) {
                     *f = t;
                 } else {
                     *self = Self::Float(*f as f64 * base as f64 + i as f64);
                 }
             }
-            Number::Float(f) => *f = *f * base as f64 + i as f64,
+            LuaNumberLit::Float(f) => *f = *f * base as f64 + i as f64,
         }
     }
     pub fn push_after_point(&mut self, i: i64, base: i64, d: i32) {
         self.to_float();
         match self {
-            Number::Integer(_f) => unreachable!(),
+            LuaNumberLit::Integer(_f) => unreachable!(),
 
-            Number::Float(f) => *f += i as f64 * (1.0 / base as f64).powi(d),
+            LuaNumberLit::Float(f) => *f += i as f64 * (1.0 / base as f64).powi(d),
         }
     }
     pub fn to_float(&mut self) {
         match self {
-            Number::Integer(i) => *self = Self::Float(*i as f64),
-            Number::Float(_) => {}
+            LuaNumberLit::Integer(i) => *self = Self::Float(*i as f64),
+            LuaNumberLit::Float(_) => {}
         }
     }
     pub fn push_e(&mut self, i: i32, base: f64) {
         match self {
-            Number::Integer(f) => *self = Self::Float((*f as f64) * base.powi(i)),
-            Number::Float(f) => *f *= base.powi(i),
+            LuaNumberLit::Integer(f) => *self = Self::Float((*f as f64) * base.powi(i)),
+            LuaNumberLit::Float(f) => *f *= base.powi(i),
         }
     }
 }
-fn parse_number(iter: &mut Chars) -> Option<Number> {
-    let mut number = Number::Integer(0);
+fn parse_number(iter: &mut Chars) -> Option<LuaNumberLit> {
+    let mut number = LuaNumberLit::Integer(0);
     if iter.as_str().starts_with("0x") || iter.as_str().starts_with("0X") {
         iter.next();
         iter.next();
@@ -280,7 +280,7 @@ fn parse_number(iter: &mut Chars) -> Option<Number> {
 #[derive(Debug, Clone, PartialEq)]
 pub enum LuaLexical {
     #[lexical(fn = "parse_number")]
-    Number(Number),
+    Number(LuaNumberLit),
     #[lexical(regex = r"[a-zA-Z_][a-zA-Z_0-9]*")]
     Name(String),
     #[lexical(fn = "parse_string")]

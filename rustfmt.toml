@@ -7,3 +7,5 @@ reorder_impl_items = true
 use_field_init_shorthand = true
 single_line_if_else_max_width=100
 use_small_heuristics="Max"
+chain_width=160
+fn_args_layout="Compressed"

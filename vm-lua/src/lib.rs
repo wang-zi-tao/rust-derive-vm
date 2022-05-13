@@ -43,7 +43,7 @@ extern crate derive_builder;
 #[macro_use]
 extern crate static_assertions;
 pub(crate) type TypeResourceImpl = memory_mmmu::RegistedType;
-mod lua_lexical;
+pub mod lua_lexical;
 struct LuaModule {}
 struct LuaVM {}
 pub mod builder;
