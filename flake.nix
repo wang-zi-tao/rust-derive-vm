@@ -18,7 +18,7 @@
               lua
               (fenix.packages.${system}.fromToolchainFile {
                 file = ./rust-toolchain.toml;
-                sha256 = "sha256-CNMj0ouNwwJ4zwgc/gAeTYyDYe0botMoaj/BkeDTy4M=";
+                sha256 = "sha256-Jy4W4+BErGFOWIpsxJZHkG7GzUqpDMevTfsAEkhuf2U=";
               })
             ];
             LLVM_SYS_100_PREFIX = "${pkgs.llvmPackages_10.llvm}";

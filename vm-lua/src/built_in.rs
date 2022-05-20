@@ -22,8 +22,22 @@ pub extern "C" fn print(state: LuaStateReference, args: &[LuaValueImpl]) -> Poin
     println!("{}", String::from_utf8_lossy(&buffer));
     empty_return()
 }
+pub extern "C" fn exec_lua(state: LuaStateReference, args: &[LuaValueImpl]) -> Pointer<UnsizedArray<LuaValue>> {
+    if let Some(v) = args[0].read_string() {
+        let code = unsafe {
+            let mut buffer = Vec::new();
+            buffer.extend(v.as_ref().ref_data().as_slice().iter().map(|d| d.0));
+            String::from_utf8_lossy(&buffer).to_string()
+        };
+        crate::run_code(state, code.as_ref()).unwrap();
+    } else {
+        panic!("code is not a string");
+    }
+    empty_return()
+}
+
 pub const DEFAULT_BUILT_IN_FUNCTIONS: &'static [(&'static str, &'static LuaFunctionRustType)] =
-    &[("print", &(print as LuaFunctionRustType))];
+    &[("print", &(print as LuaFunctionRustType)), ("exec_lua",&(exec_lua as LuaFunctionRustType))];
 pub fn register_built_in_functions(state: LuaStateReference) -> Fallible<()> {
     for (name, function) in DEFAULT_BUILT_IN_FUNCTIONS {
         crate::add_global_function(state.clone(), name, function)?;

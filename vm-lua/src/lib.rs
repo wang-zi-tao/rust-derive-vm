@@ -323,6 +323,9 @@ pub fn spawn(lua_state: LuaStateReference, code: String) -> std::thread::JoinHan
         };
     })
 }
+pub fn hello() {
+    println!("[ zitao lua 虚拟机 v{} ]", &env!("CARGO_PKG_VERSION"));
+}
 #[cfg(test)]
 mod tests {
     use failure::Fallible;

@@ -20,7 +20,7 @@ members = [
   "syntax-derive",
   "syntax-test",
   "vm-lua",
-  "vm-lua-shell",
+  "vm-shell",
   "vm-wenyan",
   # "vm-jvm",
 ]

@@ -1736,7 +1736,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "vm-lua-shell"
+name = "vm-shell"
 version = "0.1.0"
 dependencies = [
  "env_logger 0.9.0",
@@ -1745,6 +1745,7 @@ dependencies = [
  "runtime",
  "structopt",
  "vm-lua",
+ "vm-wenyan",
 ]
 
 [[package]]

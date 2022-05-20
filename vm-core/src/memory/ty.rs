@@ -252,7 +252,7 @@ impl EnumTagLayout {
         }
     }
 
-    pub unsafe fn decode(&self, data: *mut u8) -> usize {
+    pub unsafe fn decode(&self, data: *const u8) -> usize {
         match self {
             Self::AppendTag { offset, size } | Self::UnusedBytes { offset, size } => {
                 let tag_ptr = data.add(*offset);
@@ -365,7 +365,7 @@ impl SmallElementLayout {
         }
     }
 
-    pub unsafe fn decode(&self, ptr: *mut usize) -> usize {
+    pub unsafe fn decode(&self, ptr: *const usize) -> usize {
         if self.bit_offset > 0 {
             (ptr.read() & self.mask) >> self.bit_offset
         } else {

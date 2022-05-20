@@ -12,4 +12,6 @@ pub struct Opt {
     pub bench: bool,
     #[structopt(short = "j", long)]
     pub jit: bool,
+    #[structopt(short = "l", long, default_value = "lua")]
+    pub language: String,
 }

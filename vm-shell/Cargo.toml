@@ -1,5 +1,5 @@
 [package]
-name = "vm-lua-shell"
+name = "vm-shell"
 version = "0.1.0"
 edition = "2021"
 
@@ -8,6 +8,7 @@ edition = "2021"
 [dependencies]
 failure = "0.1.8"
 vm-lua={path="../vm-lua"}
+vm-wenyan={path="../vm-wenyan"}
 env_logger = "0.9.0"
 log = "0.4.0"
 structopt = "0.3.26"
