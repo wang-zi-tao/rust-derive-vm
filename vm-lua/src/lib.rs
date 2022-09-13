@@ -255,6 +255,14 @@ lazy_static! {
         }
     };
 }
+lazy_static! {
+    pub static ref LUA_JIT: JITCompiler<LuaInstructionSet, MemoryMMMU> = {
+        match JITCompiler::new() {
+            Ok(o) => o,
+            Err(e) => panic!("{}", e),
+        }
+    };
+}
 pub fn pack_code(lua_state: LuaStateReference, code: &str) -> Fallible<Vec<FunctionPack<LuaInstructionSet>>> {
     debug!(target:"vm_lua::pack_code","code: {:?}", code);
     let lexical = LuaLexical::parse(code)?;
@@ -266,9 +274,11 @@ pub fn pack_code(lua_state: LuaStateReference, code: &str) -> Fallible<Vec<Funct
 pub fn load_code(lua_state: LuaStateReference, code: &str) -> Fallible<ObjectRef> {
     let mut pack = pack_code(lua_state, code)?;
     let root_function = pack.pop().unwrap();
-    let resource = LUA_INTERPRETER.create(root_function)?;
+    // let resource = LUA_INTERPRETER.create(root_function)?;
+    let resource = LUA_JIT.create(root_function)?;
     for closure in pack {
-        LUA_INTERPRETER.create(closure)?;
+        // LUA_INTERPRETER.create(closure)?;
+        LUA_JIT.create(closure)?;
     }
     let object = ExecutableResourceTrait::<FunctionPack<LuaInstructionSet>>::get_object(&*resource)?;
     Ok(object)
@@ -281,35 +291,6 @@ pub fn run_code(lua_state: LuaStateReference, code: &str) -> Fallible<()> {
         function(lua_state, args);
     }
     Ok(())
-}
-pub fn set_signal_handler() {
-    use nix::sys::signal;
-    extern "C" fn handle_sigsegv(_: i32) {
-        panic!("signal::SIGSEGV");
-    }
-    extern "C" fn handle_sig(s: i32) {
-        panic!("signal {}", s);
-    }
-    unsafe {
-        signal::sigaction(
-            signal::SIGILL,
-            &signal::SigAction::new(
-                signal::SigHandler::Handler(handle_sig),
-                signal::SaFlags::SA_NODEFER,
-                signal::SigSet::all(),
-            ),
-        )
-        .unwrap();
-        signal::sigaction(
-            signal::SIGSEGV,
-            &signal::SigAction::new(
-                signal::SigHandler::Handler(handle_sigsegv),
-                signal::SaFlags::SA_NODEFER,
-                signal::SigSet::empty(),
-            ),
-        )
-        .unwrap();
-    }
 }
 pub fn spawn(lua_state: LuaStateReference, code: String) -> std::thread::JoinHandle<()> {
     std::thread::spawn(move || {
@@ -336,7 +317,7 @@ mod tests {
     use std::io::{stderr, Write};
     use std::path::PathBuf;
 
-    use crate::set_signal_handler;
+    use util::set_signal_handler;
     // #[test]
     fn check_ir() -> Fallible<()> {
         let _ = crate::new_state()?;

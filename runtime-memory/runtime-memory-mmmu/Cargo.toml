@@ -10,4 +10,4 @@ edition = "2018"
 util={path="../../util" }
 
 log = "0.4.0"
-env_logger = "0.6.0"
+env_logger = "0.9.0"

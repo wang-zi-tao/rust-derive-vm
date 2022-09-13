@@ -1,13 +1,17 @@
 {
   inputs.flake-utils.url = "github:numtide/flake-utils";
   inputs.fenix.url = "github:nix-community/fenix";
-  outputs = { self, nixpkgs, fenix, flake-utils }:
+  outputs = inputs@{ self, nixpkgs, fenix, flake-utils }:
+
     flake-utils.lib.eachDefaultSystem
       (system:
-        let pkgs = nixpkgs.legacyPackages.${system}; in
+        let
+          # fenix = inputs.fenix.packages.${system};
+          pkgs = nixpkgs.legacyPackages.${system};
+        in
         {
           devShell = pkgs.mkShell {
-            nativeBuildInputs = with pkgs; [
+            nativeBuildInputs = with pkgs; with fenix.packages.${system};[
               pkg-config
               llvmPackages_10.llvm
               libffi
@@ -16,9 +20,11 @@
               glibc
               pkg-config
               lua
+              libcxx
+              cargo-expand
               (fenix.packages.${system}.fromToolchainFile {
                 file = ./rust-toolchain.toml;
-                sha256 = "sha256-Jy4W4+BErGFOWIpsxJZHkG7GzUqpDMevTfsAEkhuf2U=";
+                sha256 = "sha256-Ws1TG1Jkessdil6wIr8+RpAG0wZdYsZ6Wb9p3LEHLFk=";
               })
             ];
             LLVM_SYS_100_PREFIX = "${pkgs.llvmPackages_10.llvm}";

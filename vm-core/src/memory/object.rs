@@ -171,10 +171,7 @@ impl Object {
     }
 
     pub fn replace(
-        this: &ObjectRef,
-        mut buffer: UnsafeBuffer,
-        symbols: Vec<Symbol<ObjectExport>>,
-        relocations: Vec<(Relocation, ObjectImport)>,
+        this: &ObjectRef, mut buffer: UnsafeBuffer, symbols: Vec<Symbol<ObjectExport>>, relocations: Vec<(Relocation, ObjectImport)>,
     ) -> Fallible<(UnsafeBuffer, Vec<Symbol<ObjectExport>>, Vec<(Relocation, ObjectImport)>)> {
         let mut this_guard = this.lock().unwrap();
         if this_guard.pin {
@@ -617,7 +614,7 @@ impl<'l> Default for ObjectBuilderInner<'l> {
 }
 impl<'l> ObjectBuilderInner<'l> {
     pub fn new(buffer: UnsafeBuffer) -> Self {
-        Self { buffer, symbols: Vec::new(), relocations: Vec::new(), pin: false, align: 8 }
+        Self { buffer, symbols: Vec::new(), relocations: Vec::new(), pin: false, align: 1 }
     }
 
     pub fn with_capacity(capacity: usize) -> Self {
@@ -625,11 +622,7 @@ impl<'l> ObjectBuilderInner<'l> {
     }
 
     pub fn push_import(
-        this: &ObjectBuilder<'l>,
-        token: &mut GhostToken<'l>,
-        import: ObjectBuilderImport<'l>,
-        relocation_kind: RelocationKind,
-        symbol_index: usize,
+        this: &ObjectBuilder<'l>, token: &mut GhostToken<'l>, import: ObjectBuilderImport<'l>, relocation_kind: RelocationKind, symbol_index: usize,
     ) -> usize {
         let relocation_index = this.borrow(token).relocations.len();
         let offset = this.borrow(token).len();
@@ -658,11 +651,7 @@ impl<'l> ObjectBuilderInner<'l> {
     }
 
     pub fn set_import(
-        this: &ObjectBuilder<'l>,
-        token: &mut GhostToken<'l>,
-        offset: usize,
-        import: ObjectBuilderImport<'l>,
-        relocation_kind: RelocationKind,
+        this: &ObjectBuilder<'l>, token: &mut GhostToken<'l>, offset: usize, import: ObjectBuilderImport<'l>, relocation_kind: RelocationKind,
         symbol_index: usize,
     ) {
         let relocation_index = this.borrow(token).relocations.len();
@@ -779,6 +768,7 @@ impl<'l> ObjectBuilderInner<'l> {
     }
 
     pub fn align(&mut self, align: usize) {
+        self.align = self.align.max(align);
         unsafe { self.buffer.align(align) }
     }
 

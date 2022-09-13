@@ -374,11 +374,7 @@ pub(crate) fn convert_value<'ctx>(value: &Value, context: &'ctx Context) -> Resu
     })
 }
 pub(crate) fn bitcast_to_int<'ctx>(
-    value: BasicValueEnum<'ctx>,
-    _ty: &Type,
-    _context: &'ctx Context,
-    builder: &Builder<'ctx>,
-    to: IntType<'ctx>,
+    value: BasicValueEnum<'ctx>, _ty: &Type, _context: &'ctx Context, builder: &Builder<'ctx>, to: IntType<'ctx>,
 ) -> Result<IntValue<'ctx>> {
     let from_type = value.get_type();
     Ok(match from_type {
@@ -393,10 +389,7 @@ pub(crate) fn bitcast_to_int<'ctx>(
     })
 }
 pub(crate) fn bitcast_from_int<'ctx>(
-    value: IntValue<'ctx>,
-    _context: &'ctx Context,
-    builder: &Builder<'ctx>,
-    to: BasicTypeEnum<'ctx>,
+    value: IntValue<'ctx>, _context: &'ctx Context, builder: &Builder<'ctx>, to: BasicTypeEnum<'ctx>,
 ) -> Result<BasicValueEnum<'ctx>> {
     let _from_type = value.get_type();
     Ok(match to {
@@ -510,11 +503,8 @@ pub(crate) fn get_constant_type<'ctx>(metadata: &GenericsMetadata, _context: &'c
     })
 }
 pub(crate) fn convert_memory_instruciton_operands<'ctx>(
-    instruction_type: BootstrapInstruction,
-    global_builder: &Rc<RefCell<GlobalBuilder<'ctx>>>,
-    builder: &Builder<'ctx>,
-    ty: &MaybeDefinedResource<dyn TypeResource>,
-    operands: &mut [Operand<'ctx>],
+    instruction_type: BootstrapInstruction, global_builder: &Rc<RefCell<GlobalBuilder<'ctx>>>, builder: &Builder<'ctx>,
+    ty: &MaybeDefinedResource<dyn TypeResource>, operands: &mut [Operand<'ctx>],
 ) -> Result<Vec<Operand<'ctx>>> {
     let mut new_operands = Vec::new();
     let mut global_ref = global_builder.borrow_mut();
@@ -561,12 +551,8 @@ pub(crate) fn convert_memory_instruciton_operands<'ctx>(
     Ok(new_operands)
 }
 pub(crate) fn write_back_memory_instruciton_operands<'ctx>(
-    instruction_type: BootstrapInstruction,
-    global_builder: &Rc<RefCell<GlobalBuilder<'ctx>>>,
-    builder: &Builder<'ctx>,
-    ty: &MaybeDefinedResource<dyn TypeResource>,
-    operands: &mut [Operand<'ctx>],
-    new_operands: Vec<Operand<'ctx>>,
+    instruction_type: BootstrapInstruction, global_builder: &Rc<RefCell<GlobalBuilder<'ctx>>>, builder: &Builder<'ctx>,
+    ty: &MaybeDefinedResource<dyn TypeResource>, operands: &mut [Operand<'ctx>], new_operands: Vec<Operand<'ctx>>,
 ) -> Result<()> {
     let global_ref = global_builder.borrow_mut();
     let context = global_ref.context;
@@ -624,7 +610,7 @@ pub(crate) struct LLVMBasicBlockBuilder<'ctx> {
 #[derive(Clone, Debug)]
 pub(crate) struct GlobalBuilder<'ctx> {
     pub(crate) symbol_maps: HashMap<GlobalValue<'ctx>, *const u8>,
-    pub(crate) module: Arc<Module<'ctx>>,
+    pub(crate) module: Rc<Module<'ctx>>,
     pub(crate) context: &'ctx Context,
     pub(crate) memory_instruction_set: MemoryInstructionSet,
 }
@@ -641,15 +627,12 @@ pub(crate) struct LLVMFunctionBuilder<'ctx> {
     registers: Option<PointerValue<'ctx>>,
     termined: bool,
     returned: bool,
-    ip_phi: PhiValue<'ctx>,
+    ip_phi: Option<PhiValue<'ctx>>,
     exit: BasicBlock<'ctx>,
 }
 impl<'ctx, 'm> LLVMFunctionBuilder<'ctx> {
     fn generate_boostrap_instruction_core(
-        &mut self,
-        bootstrap: &BootstrapInstruction,
-        constants: &[Constant<'ctx>],
-        operands: &mut [Operand<'ctx>],
+        &mut self, bootstrap: &BootstrapInstruction, constants: &[Constant<'ctx>], operands: &mut [Operand<'ctx>],
     ) -> Result<()> {
         (|| {
             use BootstrapInstruction::*;
@@ -1571,10 +1554,7 @@ impl<'ctx, 'm> LLVMFunctionBuilder<'ctx> {
     }
 
     fn generate_complex_instruction_core(
-        &mut self,
-        complex_instruction: &ComplexInstruction,
-        constants: &[Constant<'ctx>],
-        operands: &mut [Operand<'ctx>],
+        &mut self, complex_instruction: &ComplexInstruction, constants: &[Constant<'ctx>], operands: &mut [Operand<'ctx>],
     ) -> Result<()> {
         let instruction_name = complex_instruction.name.to_string();
         (|| {
@@ -2036,10 +2016,7 @@ impl<'ctx, 'm> LLVMFunctionBuilder<'ctx> {
     }
 
     fn generate_compress_instruction_core(
-        &mut self,
-        compress_instruction: &CompressionInstruction,
-        constant: &[Constant<'ctx>],
-        operand: &mut [Operand<'ctx>],
+        &mut self, compress_instruction: &CompressionInstruction, constant: &[Constant<'ctx>], operand: &mut [Operand<'ctx>],
     ) -> Result<()> {
         let context = self.context;
         let builder = &self.builder;
@@ -2070,10 +2047,7 @@ impl<'ctx, 'm> LLVMFunctionBuilder<'ctx> {
     }
 
     fn generate_stateful_instruction_core(
-        &mut self,
-        stateful_instruction: &StatefulInstruction,
-        constant: &[Constant<'ctx>],
-        operand: &mut [Operand<'ctx>],
+        &mut self, stateful_instruction: &StatefulInstruction, constant: &[Constant<'ctx>], operand: &mut [Operand<'ctx>],
     ) -> Result<()> {
         let context = self.context;
         let state_constant = constant.last().ok_or(GenericIndexOutOfRange(0))?;
@@ -2116,11 +2090,7 @@ impl<'ctx, 'm> LLVMFunctionBuilder<'ctx> {
     }
 
     pub(crate) fn generate_instruction_set_interpreter(
-        instructions: &[(usize, InstructionType)],
-        instruction_count: usize,
-        context: &'ctx Context,
-        global: Rc<RefCell<GlobalBuilder<'ctx>>>,
-        name: &str,
+        instructions: &[(usize, InstructionType)], instruction_count: usize, context: &'ctx Context, global: Rc<RefCell<GlobalBuilder<'ctx>>>, name: &str,
     ) -> Result<GlobalValue<'ctx>> {
         let instruction_count = instruction_count;
         let deploy_table_entry_type = get_instruction_function_type(context).ptr_type(AddressSpace::Generic);
@@ -2171,16 +2141,12 @@ impl<'ctx, 'm> LLVMFunctionBuilder<'ctx> {
     }
 
     fn generate_instruction_interpreter(
-        instruction_type: &InstructionType,
-        instruction_count: usize,
-        global: Rc<RefCell<GlobalBuilder<'ctx>>>,
-        deploy_table: GlobalValue<'ctx>,
-        state_instruction_type: Option<(&StatefulInstruction, usize)>,
-        name: &str,
+        instruction_type: &InstructionType, instruction_count: usize, global: Rc<RefCell<GlobalBuilder<'ctx>>>, deploy_table: GlobalValue<'ctx>,
+        state_instruction_type: Option<(&StatefulInstruction, usize)>, name: &str,
     ) -> Result<FunctionValue<'ctx>> {
         let (context, module) = {
             let global_ref = global.borrow();
-            (global_ref.context, &global_ref.module.clone())
+            (global_ref.context, global_ref.module.clone())
         };
         let metadata = &*get_instruction_metadata(instruction_type, &[], None, true)?;
         let function_type = get_instruction_function_type(context);
@@ -2287,7 +2253,7 @@ impl<'ctx, 'm> LLVMFunctionBuilder<'ctx> {
             state_stack: Default::default(),
             exit,
             returned: false,
-            ip_phi,
+            ip_phi: Some(ip_phi),
         };
         if let Some((stateful, start)) = state_instruction_type {
             this.state_stack.push(StateInstructionBuilder { instruction: stateful.clone(), state_kind: StateKind::Opcode(ip, start) });
@@ -2369,17 +2335,14 @@ impl<'ctx, 'm> LLVMFunctionBuilder<'ctx> {
     }
 
     fn generate_instruction_jit(
-        instruction_type: &InstructionType,
-        global: Rc<RefCell<GlobalBuilder<'ctx>>>,
-        state_instruction_type: Option<&StatefulInstruction>,
-        name: &str,
-    ) -> Result<JITInstruction>
+        instruction_type: &InstructionType, global: Rc<RefCell<GlobalBuilder<'ctx>>>, state_instruction_type: Option<&StatefulInstruction>, name: &str,
+    ) -> Result<(JITInstruction, FunctionValue<'ctx>)>
     where
         'ctx: 'static,
     {
         let (context, module) = {
             let global_ref = global.borrow();
-            (global_ref.context, &global_ref.module.clone())
+            (global_ref.context, global_ref.module.clone())
         };
         let metadata = &*get_instruction_metadata(instruction_type, &[], None, true)?;
         let mut constant_offset_list = Vec::new();
@@ -2477,15 +2440,15 @@ impl<'ctx, 'm> LLVMFunctionBuilder<'ctx> {
             constant_list.push(Constant::Ptr(function.get_nth_param(constant_list.len() as u32).unwrap().into_pointer_value(), state_type))
         }
         let mut operand_list = Vec::new();
+        let operand_index_start = generics_metadatas.len() + 1;
         for (index, (operand_metadata, _offset)) in metadata.operands.iter().zip(&operand_offset_list).enumerate() {
-            let arg_index = args.len() + index;
+            let arg_index = operand_index_start + index;
             let operand_arg = function.get_nth_param(arg_index as u32).ok_or(GenericIndexOutOfRange(index))?;
             operand_list.push(Operand::Register(operand_arg.into_pointer_value(), operand_metadata.value_type.clone()));
         }
         let exit = context.append_basic_block(function, "exit");
         let exit_block_builder = context.create_builder();
         exit_block_builder.position_at_end(exit);
-        let ip_phi = exit_block_builder.build_phi(context.i8_type().ptr_type(AddressSpace::Global), "ip");
         let mut this = LLVMFunctionBuilder {
             context: &*context,
             builder,
@@ -2500,7 +2463,7 @@ impl<'ctx, 'm> LLVMFunctionBuilder<'ctx> {
             state_stack: Default::default(),
             exit,
             returned: false,
-            ip_phi,
+            ip_phi: None,
         };
         if let Some(stateful) = state_instruction_type {
             this.state_stack
@@ -2514,16 +2477,17 @@ impl<'ctx, 'm> LLVMFunctionBuilder<'ctx> {
             }
         }
         if !this.termined {
-            ip_phi.add_incoming(&[(&usize_type.const_zero(), this.builder.get_insert_block().unwrap())]);
             this.builder.build_unconditional_branch(exit);
             this.builder.clear_insertion_position();
         }
         if !this.returned {
             let builder = exit_block_builder;
             builder.build_return(Some(&usize_type.const_zero()));
+        } else {
+            exit_block_builder.build_unreachable();
         }
         let jit_instrcution = JITInstruction {
-            function,
+            function_name: function.get_name().to_str().unwrap().into(),
             align: constant_layout.align(),
             size: constant_layout.size(),
             is_returned: this.returned,
@@ -2531,14 +2495,11 @@ impl<'ctx, 'm> LLVMFunctionBuilder<'ctx> {
             constant_size,
             constants: jit_constants,
         };
-        Ok(jit_instrcution)
+        Ok((jit_instrcution, function))
     }
 
     pub(crate) fn generate_instruction_set_jit(
-        instructions: &[(usize, InstructionType)],
-        instruction_count: usize,
-        context: &'ctx Context,
-        global: Rc<RefCell<GlobalBuilder<'ctx>>>,
+        instructions: &[(usize, InstructionType)], instruction_count: usize, context: &'ctx Context, global: Rc<RefCell<GlobalBuilder<'ctx>>>,
     ) -> Result<Vec<JITInstruction>>
     where
         'ctx: 'static,
@@ -2547,6 +2508,7 @@ impl<'ctx, 'm> LLVMFunctionBuilder<'ctx> {
         let deploy_table_entry_type = get_instruction_function_type(context).ptr_type(AddressSpace::Generic);
         let _deploy_table_type = deploy_table_entry_type.array_type(instruction_count.try_into()?);
         let mut jit_instructions = Vec::with_capacity(instruction_count as usize);
+        let mut functionValueList = Vec::new();
         for (index, (opcode, instruction)) in instructions.iter().enumerate() {
             match instruction {
                 InstructionType::Stateful(stateful_instruction) => {
@@ -2554,22 +2516,28 @@ impl<'ctx, 'm> LLVMFunctionBuilder<'ctx> {
                     let start = opcode;
                     for (index, state) in stateful_instruction.statuses.iter().enumerate() {
                         let state_instruction: InstructionType = InstructionType::Complex(CowArc::new(state.instruction.clone()));
-                        let jit_instruction = Self::generate_instruction_jit(
+                        let (jit_instruction, functionValue) = Self::generate_instruction_jit(
                             &state_instruction,
                             global.clone(),
                             Some(&*stateful_instruction),
                             &format!("instruction_{}", instruction.get_name()),
                         )
                         .map_err(|e| ErrorWhileGenerateInstruction(start + index, Box::new(e)))?;
+                        functionValueList.push(functionValue);
+                        if !functionValue.verify(true) {
+                            return Err(LLVMVerifyFailed(jit_instruction.function_name.to_string()));
+                        };
                         jit_instructions.push(jit_instruction);
                     }
                 }
                 _ => {
-                    let jit_instruction =
+                    let (jit_instruction, function_value) =
                         Self::generate_instruction_jit(&*instruction, global.clone(), None, &format!("instruction_{}", instruction.get_name()))
                             .map_err(|e| ErrorWhileGenerateInstruction(index, Box::new(e)))?;
-                    if !jit_instruction.function.verify(true) {
-                        return Err(LLVMVerifyFailed(jit_instruction.function.print_to_string().to_string()));
+                    functionValueList.push(function_value);
+                    function_value.print_to_stderr();
+                    if !function_value.verify(true) {
+                        return Err(LLVMVerifyFailed(jit_instruction.function_name.to_string()));
                     };
                     jit_instructions.push(jit_instruction);
                 }
@@ -2578,14 +2546,13 @@ impl<'ctx, 'm> LLVMFunctionBuilder<'ctx> {
         if jit_instructions.len() != instruction_count as usize {
             return Err(WroneInstructionCount(jit_instructions.len(), instruction_count as usize));
         }
-        let module = &*global.borrow().module;
+        let module = &global.borrow().module;
         let pass_manager_builder = PassManagerBuilder::create();
         pass_manager_builder.set_optimization_level(inkwell::OptimizationLevel::Aggressive);
-        let pass_manager = PassManager::create(module);
-        for jit_instruction in jit_instructions.iter() {
-            pass_manager.run_on(&jit_instruction.function);
+        let pass_manager = PassManager::create(&**module);
+        for jit_instruction in functionValueList {
+            pass_manager.run_on(&jit_instruction);
         }
-        pass_manager.finalize();
         Ok(jit_instructions)
     }
 
@@ -2609,7 +2576,9 @@ impl<'ctx, 'm> LLVMFunctionBuilder<'ctx> {
                 let next_ip = unsafe { branch_builder.build_gep(next_ip_base, &[offset_isize], "branch_ip") };
                 branch_builder.build_unconditional_branch(self.exit);
                 builder.clear_insertion_position();
-                self.ip_phi.add_incoming(&[(&next_ip, block)]);
+                if let Some(ip_phi) = self.ip_phi.as_ref() {
+                    ip_phi.add_incoming(&[(&next_ip, block)]);
+                }
                 block
             }
             TargetBlock::IR(offset) => {
@@ -2618,7 +2587,9 @@ impl<'ctx, 'm> LLVMFunctionBuilder<'ctx> {
                 branch_builder.position_at_end(block);
                 branch_builder.build_unconditional_branch(self.exit);
                 builder.clear_insertion_position();
-                self.ip_phi.add_incoming(&[(&offset, block)]);
+                if let Some(ip_phi) = self.ip_phi.as_ref() {
+                    ip_phi.add_incoming(&[(&offset, block)]);
+                }
                 block
             }
         })
@@ -2626,10 +2597,7 @@ impl<'ctx, 'm> LLVMFunctionBuilder<'ctx> {
 }
 
 pub(crate) fn get_instruction_metadata<'ctx>(
-    instruction_type: &InstructionType,
-    generics: &[Constant<'ctx>],
-    last_stateul: Option<&StatefulInstruction>,
-    is_root: bool,
+    instruction_type: &InstructionType, generics: &[Constant<'ctx>], last_stateul: Option<&StatefulInstruction>, is_root: bool,
 ) -> Result<Cow<'static, InstructionMetadata>> {
     match instruction_type {
         InstructionType::Bootstrap(bootstrap_instruction) => {
@@ -2655,10 +2623,7 @@ pub(crate) fn get_instruction_metadata<'ctx>(
     }
 }
 pub(crate) fn get_boostrap_instruction_metadata<'ctx>(
-    bootstrap: BootstrapInstruction,
-    generics: &[Constant<'ctx>],
-    last_stateul: Option<&StatefulInstruction>,
-    is_root: bool,
+    bootstrap: BootstrapInstruction, generics: &[Constant<'ctx>], last_stateul: Option<&StatefulInstruction>, is_root: bool,
 ) -> Result<InstructionMetadata> {
     use BootstrapInstruction::*;
     let get_type_generic = |index: usize| {

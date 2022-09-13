@@ -11,16 +11,16 @@ util={path="../util" }
 util-derive={path="../util-derive"}
 failure = "0.1.8"
 failure_derive = "0.1.8"
-hashbrown = "0.8.2"
-dashmap ="3.11.7"
+hashbrown = "0.12.3"
+dashmap ="5.3.4"
 getset = "0.1.2"
 crossbeam = "0.8.0"
 log = "0.4.0"
-env_logger = "0.6.0"
+env_logger = "0.9.0"
 smallvec = "1.6.1"
 async-trait = "0.1.51"
 tokio = {version="1.9.0",features=["full"]}
-derive_builder = "0.10.2"
+derive_builder = "0.11.2"
 ghost-cell = "0.2.2"
 lazy_static="1.4.0"
 arc-swap = {version="1.5.0",features=["weak"]}

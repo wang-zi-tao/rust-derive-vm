@@ -1,4 +1,4 @@
-use std::{convert::TryInto, mem::MaybeUninit, ptr::null, sync::Arc};
+use std::{convert::TryInto, ffi::c_void, mem::MaybeUninit, ptr::null, sync::Arc};
 
 use failure::Fallible;
 use getset::{CopyGetters, Getters};
@@ -7,7 +7,10 @@ use inkwell::{
     module::Module,
     values::{CallableValue, PointerValue},
 };
-use libffi::middle::{Callback, Cif, Closure, Type};
+use libffi::{
+    middle::{Callback, Cif, Closure, Type},
+    raw::ffi_cif,
+};
 use util::CowArc;
 use vm_core::{
     FunctionType, IntKind, ObjectBuilder, ObjectBuilderImport, ObjectBuilderInner, ObjectRef, RelocationKind, SymbolBuilder, Tuple, _ghost_cell::GhostToken,
@@ -34,33 +37,31 @@ pub struct RawInterpreter {
 }
 impl RawInterpreter {
     pub fn new(
-        instructions: &[(usize, InstructionType)],
-        instruction_count: usize,
-        memory_instruction_set: &MemoryInstructionSet,
-        name: &str,
+        instructions: &[(usize, InstructionType)], instruction_count: usize, memory_instruction_set: &MemoryInstructionSet, name: &str,
     ) -> Fallible<Self> {
         let context = Arc::new(Context::create());
-        let binder = {
-            let context_ref = &*context;
-            let module = Arc::new(context_ref.create_module(name));
-            let global_builder = Rc::new(RefCell::new(GlobalBuilder {
-                symbol_maps: Default::default(),
-                module,
-                context: context_ref,
-                memory_instruction_set: memory_instruction_set.clone(),
-            }));
-            let instruction_functions =
-                LLVMFunctionBuilder::generate_instruction_set_interpreter(instructions, instruction_count, context_ref, global_builder.clone(), name)?;
-            let GlobalBuilder { symbol_maps, module, .. } = Rc::try_unwrap(global_builder).unwrap().into_inner();
-            FunctionBinder::generate(context_ref, &module, instruction_functions.as_pointer_value(), 12)?;
-            module.verify().map_err(|e| format_err!("llvm verify error: {}", e.to_string()))?;
-            let execution_engine = module.create_jit_execution_engine(inkwell::OptimizationLevel::Aggressive).map_err(|e| format_err!("llvm error: {}", e))?;
-            for (symbol, ptr) in symbol_maps {
-                execution_engine.add_global_mapping(&symbol, ptr as usize);
-            }
-            std::mem::forget(execution_engine.clone());
-            FunctionBinder::from_jit(execution_engine, 12)?
-        };
+        let context_ref = &*context;
+        let module = context_ref.create_module(name);
+        let global_builder = Rc::new(RefCell::new(GlobalBuilder {
+            symbol_maps: Default::default(),
+            module: Rc::new(module),
+            context: context_ref,
+            memory_instruction_set: memory_instruction_set.clone(),
+        }));
+        let instruction_functions =
+            LLVMFunctionBuilder::generate_instruction_set_interpreter(instructions, instruction_count, context_ref, global_builder.clone(), name)?;
+        let GlobalBuilder { symbol_maps, module, .. } = Rc::try_unwrap(global_builder).unwrap().into_inner();
+        FunctionBinder::generate(context_ref, &module, instruction_functions.as_pointer_value(), 12)?;
+        module.verify().map_err(|e| format_err!("llvm verify error: {}", e.to_string()))?;
+        let execution_engine = module.create_jit_execution_engine(inkwell::OptimizationLevel::Aggressive).map_err(|e| format_err!("llvm error: {}", e))?;
+        for (symbol, ptr) in symbol_maps {
+            execution_engine.add_global_mapping(&symbol, ptr as usize);
+        }
+        std::mem::forget(execution_engine.clone());
+        let binder = FunctionBinder::from_jit(&execution_engine, 12)?;
+        drop(module);
+        drop(context_ref);
+        drop(execution_engine);
         Ok(Self { binder, context })
     }
 }
@@ -188,12 +189,7 @@ pub struct FunctionMetadata {
     closure: Closure<'static>,
 }
 fn get_callback<'ctx>(
-    context: &'ctx Context,
-    instructions: PointerValue<'ctx>,
-    optional_arg_count: Option<usize>,
-    is_var_args: bool,
-    module: &Module<'ctx>,
-    name: &str,
+    context: &'ctx Context, instructions: PointerValue<'ctx>, optional_arg_count: Option<usize>, is_var_args: bool, module: &Module<'ctx>, name: &str,
 ) -> Fallible<PointerValue<'ctx>> {
     module.add_function("llvm.stacksave", context.i8_type().ptr_type(inkwell::AddressSpace::Generic).fn_type(&[], false), None);
     module.add_function("llvm.stackrestore", context.void_type().fn_type(&[context.i8_type().ptr_type(inkwell::AddressSpace::Generic).into()], false), None);
@@ -305,12 +301,7 @@ fn convert_type(vm_type: &vm_core::Type) -> Type {
 }
 impl FunctionBinder {
     pub(crate) fn bind<'ctx>(
-        &self,
-        code: ObjectRef,
-        function_type: &FunctionType,
-        register_count: u16,
-        output: ObjectRef,
-        context: Arc<Context>,
+        &self, code: ObjectRef, function_type: &FunctionType, register_count: u16, output: ObjectRef, context: Arc<Context>,
     ) -> Fallible<ObjectRef> {
         let mut args_type = Vec::with_capacity(function_type.args.len());
         for arg_type in &function_type.args {
@@ -324,10 +315,12 @@ impl FunctionBinder {
         let ret_type = if let Some(ret) = &function_type.return_type { convert_type(ret) } else { Type::void() };
         let cif = Cif::new(args_type, ret_type);
         let callback = self.enter_points.get(function_type.args().len()).copied().unwrap_or(self.enter_point_mul_arg);
+
         GhostToken::new(|mut token| {
             let object_builder = ObjectBuilder::default();
             let metadata_memory: &mut MaybeUninit<FunctionMetadata> = object_builder.borrow_mut(&mut token).receive();
             let metadata_ptr_mut = unsafe { metadata_memory.assume_init_mut() as *mut FunctionMetadata };
+            assert_ne!(callback as *const Callback<FunctionMetadata, i64>, null());
             let closure = unsafe { Closure::new(cif, callback, metadata_ptr_mut.as_ref().unwrap()) };
             let entry = unsafe { std::mem::transmute(*closure.code_ptr()) };
             metadata_memory.write(FunctionMetadata { register_count, code: null(), args_count: function_type.args.len(), bind: entry, context, closure });
@@ -356,17 +349,24 @@ impl FunctionBinder {
         Ok(())
     }
 
-    pub(crate) fn from_jit(execution_engine: inkwell::execution_engine::ExecutionEngine, arg_count: usize) -> Fallible<Self> {
+    pub(crate) fn from_jit(execution_engine: &inkwell::execution_engine::ExecutionEngine, arg_count: usize) -> Fallible<Self> {
         let mut enter_points = Vec::with_capacity(arg_count);
         let mut enter_points_va_arg = Vec::with_capacity(arg_count);
         // let e = execution_engine.get_function::<Ca>("ffi_callback");
         let enter_point_mul_arg = unsafe { std::mem::transmute(execution_engine.get_function_address("ffi_callback")?) };
+        assert_ne!(enter_point_mul_arg as *const Callback<FunctionMetadata, i64>, null());
         let enter_point_mul_arg_va_arg = unsafe { std::mem::transmute(execution_engine.get_function_address("ffi_callback_va_arg")?) };
+        assert_ne!(enter_point_mul_arg_va_arg as *const Callback<FunctionMetadata, i64>, null());
         for i in 0..arg_count {
             unsafe {
-                enter_points.push(std::mem::transmute(execution_engine.get_function_address(&format!("ffi_callback_with_arg_count_{}", i))?));
-                enter_points_va_arg
-                    .push(std::mem::transmute(execution_engine.get_function_address(&format!("ffi_callback_with_va_arg_with_arg_count_{}", i))?));
+                let enter_point = std::mem::transmute(execution_engine.get_function_address(&format!("ffi_callback_with_arg_count_{}", i))?);
+                assert_ne!(enter_point as *const Callback<FunctionMetadata, i64>, null());
+                enter_points.push(enter_point);
+                let enter_point_mut_arg =
+                    std::mem::transmute(execution_engine.get_function_address(&format!("ffi_callback_with_va_arg_with_arg_count_{}", i))?);
+                enter_points.push(enter_point_mut_arg);
+                assert_ne!(enter_point_mut_arg as *const Callback<FunctionMetadata, i64>, null());
+                enter_points_va_arg.push(enter_point_mul_arg);
             }
         }
         Ok(Self { enter_points, enter_points_va_arg, enter_point_mul_arg, enter_point_mul_arg_va_arg })

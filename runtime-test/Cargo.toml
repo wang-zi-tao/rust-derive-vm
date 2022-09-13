@@ -17,5 +17,5 @@ runtime-derive={path="../runtime-derive"}
 memory-mmmu={path="../memory-impl/memory-mmmu"}
 llvm-runtime={path="../runtime-impl/llvm-runtime"}
 util={path="../util"}
-libffi = "2.0.0"
+libffi = "3.0.0"
 failure = "0.1.8"

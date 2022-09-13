@@ -1,4 +1,6 @@
-use llvm_runtime::Interpreter;
+use std::{ptr::null, sync::atomic::compiler_fence};
+
+use llvm_runtime::{Interpreter, JITCompiler};
 use memory_mmmu::MemoryMMMU;
 use runtime::{
     code::{BlockBuilder, BuddyRegisterPool, FunctionBuilder, FunctionPack},
@@ -16,17 +18,18 @@ runtime_derive::make_instruction_set! {
         ReturnI64->fn(v:e::I64){ entry:{
                 b::Return<e::I64::TYPE>(%v);
         } },
-        // ConstI64->e::ConstI64,
-        ConstI64_2->fn<const value:e::I64>()->(o:e::I64){ entry:{
-                %o = b::Move<e::I64::TYPE>(%value);
-        } },
-        ReturnConstI64->fn<const value:e::I64>(){ entry:{
-                b::Return<e::I64::TYPE>(%value);
-        } },
+        ConstI64->e::I64Const,
+        // ConstI64_2->fn<const value:e::I64>()->(o:e::I64){ entry:{
+        //         %o = b::Move<e::I64::TYPE>(%value);
+        // } },
+        // ReturnConstI64->fn<const value:e::I64>(){ entry:{
+        //         b::Return<e::I64::TYPE>(%value);
+        // } },
     ]
 }
 #[test]
 fn test() -> failure::Fallible<()> {
+    util::set_signal_handler();
     GhostToken::new(|mut token| {
         let mut function_builder = FunctionBuilder::<EvalInstructionSet>::new();
         let mut block_builder = BlockBuilder::<EvalInstructionSet>::default();
@@ -40,6 +43,7 @@ fn test() -> failure::Fallible<()> {
         // dbg!(block_builder.codes().borrow_mut(&mut token));
         I64Add::emit(&mut block_builder, &mut token, &arg1, &arg0).unwrap();
         ReturnI64::emit(&mut block_builder, &mut token, &ret).unwrap();
+        dbg!(&block_builder.codes());
         // dbg!(block_builder.codes().borrow_mut(&mut token));
         // ReturnConstI64::emit(&mut block_builder, &mut token, e::I64(4)).unwrap();
         function_builder.add_block(block_builder);
@@ -48,13 +52,17 @@ fn test() -> failure::Fallible<()> {
         arg1.forget();
         let function_type = FunctionTypeBuilder::default().args(vec![e::I64::TYPE, e::I64::TYPE].into()).return_type(Some(e::I64::TYPE)).build()?;
         let pack = function_builder.pack(&mut token, function_type, regester_count)?;
-        // dbg!(&pack);
+        dbg!(&pack);
 
-        let interpreter: Interpreter<EvalInstructionSet, MemoryMMMU> = Interpreter::new().map_err(|e| {
+        let runtime: JITCompiler<EvalInstructionSet, MemoryMMMU> = JITCompiler::new().map_err(|e| {
             println!("{}", e);
             e
         })?;
-        let function_resource = interpreter.create(pack)?;
+        // let runtime: Interpreter<EvalInstructionSet, MemoryMMMU> = Interpreter::new().map_err(|e| {
+        //     println!("{}", e);
+        //     e
+        // })?;
+        let function_resource = runtime.create(pack)?;
 
         // unsafe {
         //     let function_address: *const unsafe extern "C" fn(i64, i64) -> i64 = function_resource.get_address();

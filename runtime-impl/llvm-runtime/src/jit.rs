@@ -7,9 +7,9 @@ use std::{
     marker::PhantomData,
     mem::{align_of, size_of},
     num::TryFromIntError,
-    ptr::NonNull,
+    ptr::{null, NonNull},
     rc::Rc,
-    sync::Arc,
+    sync::{atomic::compiler_fence, Arc, Mutex},
     usize,
 };
 
@@ -18,9 +18,10 @@ use getset::Getters;
 use inkwell::{
     basic_block::BasicBlock,
     context::Context,
-    execution_engine::{ExecutionEngine},
-    module::Module,
+    execution_engine::{ExecutionEngine, FunctionLookupError},
+    module::{Linkage, Module},
     support::LLVMString,
+    types::{AnyType, BasicType},
     values::{FunctionValue, PointerValue},
     AddressSpace,
 };
@@ -30,10 +31,11 @@ use runtime::{
     mem::MemoryInstructionSetProvider,
 };
 
-use util::{FromNode};
+use util::FromNode;
 use util_derive::AsAny;
 use vm_core::{
-    Component, ExecutableResourceTrait, FunctionType, ObjectBuilder, ObjectRef, Resource, ResourceError, ResourceFactory, RuntimeTrait, SymbolBuilder, Type, _ghost_cell::GhostToken,
+    Component, ExecutableResourceTrait, FunctionType, ObjectBuilder, ObjectRef, Resource, ResourceError, ResourceFactory, RuntimeTrait, SymbolBuilder, Type,
+    _ghost_cell::GhostToken,
 };
 
 #[derive(Debug, Fail)]
@@ -44,10 +46,20 @@ pub enum JITCompileError {
     ParamIndexOutOfBound(usize),
     #[fail(display = "Offset index out of bounds {}", _0)]
     OffsetOutOfBound(usize),
+    #[fail(display = "failed to add module")]
+    AddModuleError(),
+    #[fail(display = "failed to lock interpreter")]
+    LockFailed(),
+    #[fail(display = "wrone state")]
+    WroneState(),
     #[fail(display = "{}", _0)]
     InstructionError(#[cause] InstructionError),
+    #[fail(display = "function not found: {}", _0)]
+    FunctionNotFound(#[cause] FunctionLookupError),
     #[fail(display = "llvm error: {}", _0)]
     LLVMError(String),
+    #[fail(display = "llvm verify failed: {}", _0)]
+    LLVMVerifyFailed(String),
     #[fail(display = "{}", _0)]
     OtherError(#[cause] Error),
 }
@@ -80,14 +92,16 @@ impl From<LLVMString> for JITCompileError {
 type Result<T> = std::result::Result<T, JITCompileError>;
 
 use crate::genarator::{function_type_to_llvm_type, vm_type_to_llvm_type, GlobalBuilder, InstructionError, LLVMFunctionBuilder};
+#[derive(Debug)]
 pub enum JITConstantKind {
     Const(Type, usize),
     Mut(Type, usize),
     BasicBlock(usize),
     State,
 }
+#[derive(Debug)]
 pub struct JITInstruction {
-    pub(crate) function: FunctionValue<'static>,
+    pub(crate) function_name: Box<str>,
     pub(crate) align: usize,
     pub(crate) size: usize,
     pub(crate) is_returned: bool,
@@ -95,50 +109,54 @@ pub struct JITInstruction {
     pub(crate) constant_size: usize,
     pub(crate) constants: Vec<JITConstantKind>,
 }
-#[derive(Getters)]
-#[getset(get = "pub")]
 pub struct RawJITCompiler {
     instructions: Vec<JITInstruction>,
     context: NonNull<Context>,
-    module: Arc<Module<'static>>,
-    execution_engine: ExecutionEngine<'static>,
+    execution_engine: Option<ExecutionEngine<'static>>,
 }
-unsafe impl Sync for RawJITCompiler {}
 unsafe impl Send for RawJITCompiler {}
 
 impl Drop for RawJITCompiler {
     fn drop(&mut self) {
         self.instructions.clear();
+        self.execution_engine = None;
         let _ = unsafe { Box::from_raw(self.context.as_ptr()) };
     }
 }
 impl RawJITCompiler {
+    pub fn context(&self) -> &'static Context {
+        unsafe { self.context.as_ref() }
+    }
+
+    pub fn execution_engine(&self) -> Fallible<&ExecutionEngine<'static>> {
+        self.execution_engine.as_ref().ok_or_else(|| WroneState().into())
+    }
+
     pub fn new((instructions, instruction_count): (&[(usize, InstructionType)], usize), memory_instruction_set: &MemoryInstructionSet) -> Result<Self> {
-        let context = Box::leak(Box::new(Context::create()));
-        let mut context_non_null = NonNull::from(context);
-        let context: &'static mut Context = unsafe { context_non_null.as_mut() };
-        let module = Arc::new(context.create_module("jit"));
+        let context: &'static Context = Box::leak(Box::new(Context::create()));
+        let module = context.create_module("jit");
         let global_builder = Rc::new(RefCell::new(GlobalBuilder {
             symbol_maps: Default::default(),
-            module: module.clone(),
+            module: Rc::new(module),
             context,
             memory_instruction_set: memory_instruction_set.clone(),
         }));
         let jit_instructions = LLVMFunctionBuilder::generate_instruction_set_jit(instructions, instruction_count, context, global_builder.clone())?;
-        let GlobalBuilder { symbol_maps, module, .. } = Rc::try_unwrap(global_builder).unwrap().into_inner();
+        let GlobalBuilder { symbol_maps, module, memory_instruction_set: _, context } = Rc::try_unwrap(global_builder).unwrap().into_inner();
         let execution_engine = module.create_jit_execution_engine(inkwell::OptimizationLevel::Aggressive).map_err(|e| format_err!("llvm error: {}", e))?;
         for (symbol, ptr) in symbol_maps {
             execution_engine.add_global_mapping(&symbol, ptr as usize);
         }
-        let this = Self { instructions: jit_instructions, context: context_non_null, module, execution_engine };
+        let this = Self { instructions: jit_instructions, context: NonNull::from(context), execution_engine: Some(execution_engine) };
         Ok(this)
     }
 
-    pub fn generate_function<'ctx>(&self, ir: &ObjectRef, function_type: &FunctionType) -> Result<FunctionValue<'ctx>> {
-        let context: &'static mut Context = unsafe { self.context.clone().as_mut() };
-        let module = &self.module;
+    pub fn generate_function<'ctx>(&self, ir: &ObjectRef, function_type: &FunctionType) -> Result<(Module<'ctx>, FunctionValue<'ctx>)> {
+        let context = self.context();
+        let module = context.create_module("jit_function_");
         let usize_type = context.custom_width_int_type(usize::BITS);
         let mut regs = HashMap::<(u16, Type), PointerValue<'ctx>>::new();
+        let mut instruction_function_decl_cache = HashMap::new();
         let function_llvm_type = function_type_to_llvm_type(function_type, context)?;
         let function = module.add_function("jited_ir_", function_llvm_type, None);
         let mut blocks = HashMap::<usize, JITBasicBlock<'ctx>>::new();
@@ -154,11 +172,14 @@ impl RawJITCompiler {
             params_layout = new_layout;
             let reg = offset / size_of::<usize>();
             let reg_pointer = entry_builder.build_alloca(llvm_type, &format!("reg_param_{}", param_index));
+            let reg_pointer =
+                entry_builder.build_address_space_cast(reg_pointer, llvm_type.ptr_type(AddressSpace::Local), &format!("reg_param_local_{}", param_index));
             let param = function.get_nth_param(param_index.try_into()?).ok_or(ParamIndexOutOfBound(param_index))?;
             entry_builder.build_store(reg_pointer, param);
             regs.insert((reg.try_into()?, param_type.clone()), reg_pointer);
         }
         let jump_to = entry_builder.build_alloca(usize_type, "jump_to");
+        let jump_to = entry_builder.build_address_space_cast(jump_to, usize_type.ptr_type(AddressSpace::Local), "jump_to");
         let block = context.append_basic_block(function, "entry");
         let builder = context.create_builder();
         builder.position_at_end(block);
@@ -183,7 +204,7 @@ impl RawJITCompiler {
             finished_task.insert(block_start);
             let block = blocks.get(&block_start).unwrap();
             builder.position_at_end(block.llvm_block);
-            loop {
+            while ip < ir_buffer.len() {
                 let opcode = match opcode_size {
                     1 => unsafe { ir_buffer.get::<u8>(ip) as usize },
                     2 => unsafe { ir_buffer.get::<u16>(ip) as usize },
@@ -193,7 +214,7 @@ impl RawJITCompiler {
                 };
                 let jit_instruction = self.instructions.get(opcode).ok_or(OpcodeOutOfBound(opcode))?;
                 let constant_start = (ip + opcode_size + (jit_instruction.align - 1)) & !(jit_instruction.align - 1);
-                let instruction_function = jit_instruction.function;
+                let instruction_function = self.execution_engine()?.get_function_value(&jit_instruction.function_name).unwrap();
                 let params = instruction_function.get_type().get_param_types();
                 let mut args = Vec::with_capacity(params.len());
                 args.push(jump_to.into());
@@ -206,6 +227,7 @@ impl RawJITCompiler {
                             let ptr: NonNull<u8> = ir_buffer.get_ptr(constant_start + constant_offset);
                             let pointer_value = usize_type.const_int((ptr.as_ptr() as usize).try_into()?, false);
                             let pointer_value = builder.build_int_to_ptr(pointer_value, llvm_type.into_pointer_type(), &format!("constnat_{}", index));
+                            dbg!(llvm_type.print_to_string());
                             args.push(pointer_value.into());
                         }
                         JITConstantKind::BasicBlock(constant_offset) => {
@@ -223,6 +245,7 @@ impl RawJITCompiler {
                         }
                     }
                 }
+                dbg!(constant_start, jit_instruction);
                 for (index, operand_type) in jit_instruction.operand_types.iter().enumerate() {
                     let reg = unsafe {
                         ir_buffer
@@ -232,12 +255,19 @@ impl RawJITCompiler {
                     let reg_pointer = match regs.entry((reg, operand_type.clone())) {
                         std::collections::hash_map::Entry::Occupied(o) => *o.get(),
                         std::collections::hash_map::Entry::Vacant(v) => {
-                            *v.insert(entry_builder.build_alloca(vm_type_to_llvm_type(operand_type, context)?, &format!("reg_{}_", reg)))
+                            let reg_type = vm_type_to_llvm_type(operand_type, context)?;
+                            let reg_pointer = entry_builder.build_alloca(reg_type, &format!("reg_{}_", reg));
+                            let reg_pointer =
+                                entry_builder.build_address_space_cast(reg_pointer, reg_type.ptr_type(AddressSpace::Local), &format!("reg_{}_pointer", reg));
+                            *v.insert(reg_pointer)
                         }
                     };
                     args.push(reg_pointer.into());
                 }
-                let ret = builder.build_call(instruction_function, &*args, &format!("call_{}", ip));
+                let instruction_function_decl = instruction_function_decl_cache
+                    .entry(opcode)
+                    .or_insert_with(|| module.add_function(&jit_instruction.function_name, instruction_function.get_type(), None));
+                let ret = builder.build_call(*instruction_function_decl, &*args, &format!("call_{}", ip));
                 if jit_instruction.is_returned {
                     if let Some(ret) = ret.try_as_basic_value().left() {
                         builder.build_return(Some(&ret));
@@ -266,15 +296,17 @@ impl RawJITCompiler {
                     builder.build_switch(jump_to_value, *else_block, &*switch_cases);
                     break;
                 }
-                ip = constant_start + constant_start + jit_instruction.constant_size + 2 * jit_instruction.operand_types.len();
+                ip = constant_start + jit_instruction.constant_size + 2 * jit_instruction.operand_types.len();
             }
         }
         entry_builder.build_unconditional_branch(first_block);
-        Ok(function)
+        module.print_to_stderr();
+        module.verify().map_err(|e| LLVMVerifyFailed(e.to_string()))?;
+        Ok((module, function))
     }
 
     pub fn wrap_function(&self, function: FunctionValue<'static>, output: ObjectRef) -> Fallible<ObjectRef> {
-        let address = self.execution_engine.get_function_address(&function.get_name().to_string_lossy())?;
+        let address = self.execution_engine()?.get_function_address(&function.get_name().to_string_lossy())?;
         GhostToken::new(|mut token| {
             let builder = ObjectBuilder::default();
             builder.borrow_mut(&mut token).push(address);
@@ -290,7 +322,7 @@ struct JITBasicBlock<'ctx> {
 #[derive(Getters)]
 #[getset(get = "pub")]
 pub struct JITCompiler<S: InstructionSet, M: MemoryInstructionSetProvider> {
-    raw: RawJITCompiler,
+    raw: Mutex<RawJITCompiler>,
     _ph: PhantomData<(S, M)>,
 }
 
@@ -300,15 +332,19 @@ unsafe impl<S: InstructionSet, M: MemoryInstructionSetProvider> Sync for JITComp
 impl<S: InstructionSet, M: MemoryInstructionSetProvider> JITCompiler<S, M> {
     pub fn new() -> Fallible<Self> {
         let raw = RawJITCompiler::new((&S::INSTRUCTIONS, S::INSTRUCTION_COUNT), &*M::get_memory_instruction_set()?)?;
-        Ok(Self { raw, _ph: PhantomData })
+        Ok(Self { raw: Mutex::new(raw), _ph: PhantomData })
     }
 
     pub fn compile(&self, pack: FunctionPack<S>) -> Fallible<ObjectRef> {
-        let function_value = self.raw.generate_function(pack.byte_code(), pack.function_type())?;
-        let function = self.raw.wrap_function(function_value, pack.output.unwrap_or_default())?;
+        let raw = self.raw().lock().map_err(|_| LockFailed())?;
+        let (module, function_value) = raw.generate_function(pack.byte_code(), pack.function_type())?;
+        module.print_to_stderr();
+        raw.execution_engine()?.add_module(&module).map_err(|_| AddModuleError())?;
+        let function = raw.wrap_function(function_value, pack.output.unwrap_or_default())?;
         Ok(function)
     }
 }
+
 #[derive(Getters, Default, Debug, AsAny)]
 #[getset(get = "pub")]
 pub struct JITFunction {
