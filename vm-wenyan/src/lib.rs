@@ -9,8 +9,8 @@ use log::{debug, error};
 use runtime::code::{BlockBuilder, BuddyRegisterPool, FunctionBuilder, FunctionPack, RegisterPool};
 use runtime_extra as e;
 use syntax_derive::lalr1_analyser;
-use vm_core::{Direct, ExecutableResourceTrait, MemoryTrait, ObjectRef, Pointer, ResourceFactory, TypeDeclaration, UnsizedArray};
-use vm_lua::{add_global_function, binary_operate_type, builder::{LuaBlockRef, LuaContext, LuaExprList, LuaExprListBuilder, LuaExprRef, LuaFunctionBuilder, LuaScoptRef, ScoptKind}, built_in::empty_return, instruction::{extend_to_buffer, ConstFalse}, ir::{Add, ConstTrue, Div, Equal, FAdd, FDiv, FEqual, FLarge, FLargeOrEqual, FLess, FLessOrEqual, FMul, FNotEqual, FRem, FSub, IAdd, IEqual, ILarge, ILargeOrEqual, ILess, ILessOrEqual, IMul, INotEqual, IRem, ISub, Large, LargeOrEqual, Less, LessOrEqual, LuaInstructionSet, Mul, NotEqual, Rem, Sub}, lua_lexical::LuaNumberLit, mem::{LuaFunctionRustType, LuaStateReference, LuaValue, LuaValueImpl}, new_state, LUA_INTERPRETER};
+use vm_core::{Direct, ExecutableResourceTrait, MemoryTrait, ObjectRef, Pointer, ResourceFactory, RuntimeTrait, TypeDeclaration, UnsizedArray};
+use vm_lua::{add_global_function, binary_operate_type, builder::{LuaBlockRef, LuaContext, LuaExprList, LuaExprListBuilder, LuaExprRef, LuaFunctionBuilder, LuaScoptRef, ScoptKind}, built_in::empty_return, instruction::{extend_to_buffer, ConstFalse}, ir::{Add, ConstTrue, Div, Equal, FAdd, FDiv, FEqual, FLarge, FLargeOrEqual, FLess, FLessOrEqual, FMul, FNotEqual, FRem, FSub, IAdd, IEqual, ILarge, ILargeOrEqual, ILess, ILessOrEqual, IMul, INotEqual, IRem, ISub, Large, LargeOrEqual, Less, LessOrEqual, LuaInstructionSet, Mul, NotEqual, Rem, Sub}, lua_lexical::LuaNumberLit, mem::{LuaFunctionRustType, LuaStateReference, LuaValue, LuaValueImpl}, new_state};
 type Register<T> = runtime::code::Register<T, BuddyRegisterPool>;
 
 pub type 表达式<'l> = LuaExprRef<'l>;
@@ -399,6 +399,7 @@ pub extern "C" fn print_wenyan(state: LuaStateReference, args: &[LuaValueImpl]) 
     println!("{}", String::from_utf8_lossy(&buffer));
     empty_return()
 }
+#[cfg(feature = "runtime")]
 pub extern "C" fn exec_wenyan(state: LuaStateReference, args: &[LuaValueImpl]) -> Pointer<UnsizedArray<LuaValue>> {
     if let Some(v) = args[0].read_string() {
         let code = unsafe {
@@ -406,7 +407,7 @@ pub extern "C" fn exec_wenyan(state: LuaStateReference, args: &[LuaValueImpl]) -
             buffer.extend(v.as_ref().ref_data().as_slice().iter().map(|d| d.0));
             String::from_utf8_lossy(&buffer).to_string()
         };
-        运行代码(state, code.as_ref()).unwrap();
+        运行代码(state, code.as_ref(), &LuaInterpreter::new().unwrap()).unwrap();
     } else {
         panic!("代码值不是字符串");
     }
@@ -418,27 +419,38 @@ pub fn 创建虚拟机() -> Fallible<虚拟机> {
 }
 pub fn 加入虚拟机(vm: 虚拟机) -> Fallible<虚拟机> {
     add_global_function(vm.clone(), "print_wenyan", &(print_wenyan as LuaFunctionRustType))?;
-    add_global_function(vm.clone(), "exec_wenyan", &(exec_wenyan as LuaFunctionRustType))?;
+    #[cfg(feature = "runtime")]
+    {
+        add_global_function(vm.clone(), "exec_wenyan", &(exec_wenyan as LuaFunctionRustType))?;
+    }
     Ok(vm)
 }
 pub fn 打招呼() {
     println!("問天地好在。『zitao 文言 虚拟机 v{} 』", &env!("CARGO_PKG_VERSION"));
 }
-pub fn 加载代码(vm: 虚拟机, code: &str) -> Fallible<ObjectRef> {
+pub fn 加载代码<R>(vm: 虚拟机, code: &str, runtime: &R) -> Fallible<ObjectRef>
+where
+    R: RuntimeTrait<FunctionPack<LuaInstructionSet>>,
+    R::ResourceImpl: ExecutableResourceTrait<FunctionPack<LuaInstructionSet>>,
+{
     debug!("code: {:?}", code);
     let lexical = 文言词法::parse(code)?;
     debug!("lexical: {:?}", &lexical);
     let mut pack = 解析语法(vm.clone(), lexical)?;
     let root_function = pack.pop().unwrap();
-    let resource = LUA_INTERPRETER.create(root_function)?;
+    let resource = runtime.create(root_function)?;
     for closure in pack {
-        LUA_INTERPRETER.create(closure)?;
+        runtime.create(closure)?;
     }
     let resource = ExecutableResourceTrait::<FunctionPack<LuaInstructionSet>>::get_object(&*resource)?;
     Ok(resource)
 }
-pub fn 运行代码(vm: 虚拟机, code: &str) -> Fallible<()> {
-    let resource = 加载代码(vm.clone(), code)?;
+pub fn 运行代码<R>(vm: 虚拟机, code: &str, runtime: &R) -> Fallible<()>
+where
+    R: RuntimeTrait<FunctionPack<LuaInstructionSet>>,
+    R::ResourceImpl: ExecutableResourceTrait<FunctionPack<LuaInstructionSet>>,
+{
+    let resource = 加载代码(vm.clone(), code, runtime)?;
     unsafe {
         let function: LuaFunctionRustType = std::mem::transmute(resource.lock().unwrap().get_export_ptr(0));
         let args = &[];
@@ -450,13 +462,18 @@ pub fn 运行代码(vm: 虚拟机, code: &str) -> Fallible<()> {
 mod tests {
     use crate::{创建虚拟机, 运行代码};
     use failure::Fallible;
+    use llvm_runtime::{Interpreter, JITCompiler};
+    use memory_mmmu::MemoryMMMU;
+    use vm_lua::LuaInstructionSet;
+    pub type LuaInterpreter = Interpreter<LuaInstructionSet, MemoryMMMU>;
+    pub type LuaJIT = JITCompiler<LuaInstructionSet, MemoryMMMU>;
     #[test]
     fn run_wenyan_script() -> Fallible<()> {
         env_logger::init();
-        vm_lua::set_signal_handler();
+        vm_lua::util::set_signal_handler();
         let vm = 创建虚拟机()?;
         let code = "為是十遍。吾有一言。曰「「問天地好在。」」。書之。云云。";
-        运行代码(vm.clone(), code)?;
+        运行代码(vm.clone(), code, &LuaInterpreter::new()?)?;
         Ok(())
     }
 }

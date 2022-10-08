@@ -9,9 +9,14 @@ edition = "2021"
 failure = "0.1.8"
 vm-lua={path="../vm-lua"}
 vm-wenyan={path="../vm-wenyan"}
+runtime={path="../runtime"}
 env_logger = "0.9.0"
 log = "0.4.0"
 structopt = "0.3.26"
+lazy_static = "1.4.0"
+llvm-runtime={path="../runtime-impl/llvm-runtime"}
+memory-mmmu={path="../memory-impl/memory-mmmu"}
 
 [dev-dependencies]
 runtime={path="../runtime"}
+

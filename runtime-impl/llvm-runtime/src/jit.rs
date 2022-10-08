@@ -1,3 +1,4 @@
+use crate::context::RuntimeContext;
 use std::{
     alloc::{Layout, LayoutError},
     cell::RefCell,
@@ -91,7 +92,7 @@ impl From<LLVMString> for JITCompileError {
 }
 type Result<T> = std::result::Result<T, JITCompileError>;
 
-use crate::genarator::{function_type_to_llvm_type, vm_type_to_llvm_type, GlobalBuilder, InstructionError, LLVMFunctionBuilder};
+use crate::genarator::{bitcast_from_int, function_type_to_llvm_type, vm_type_to_llvm_type, GlobalBuilder, InstructionError, LLVMFunctionBuilder};
 #[derive(Debug)]
 pub enum JITConstantKind {
     Const(Type, usize),
@@ -111,48 +112,38 @@ pub struct JITInstruction {
 }
 pub struct RawJITCompiler {
     instructions: Vec<JITInstruction>,
-    context: NonNull<Context>,
-    execution_engine: Option<ExecutionEngine<'static>>,
+    _context: RuntimeContext,
 }
 unsafe impl Send for RawJITCompiler {}
 
-impl Drop for RawJITCompiler {
-    fn drop(&mut self) {
-        self.instructions.clear();
-        self.execution_engine = None;
-        let _ = unsafe { Box::from_raw(self.context.as_ptr()) };
-    }
-}
 impl RawJITCompiler {
-    pub fn context(&self) -> &'static Context {
-        unsafe { self.context.as_ref() }
-    }
-
     pub fn execution_engine(&self) -> Fallible<&ExecutionEngine<'static>> {
-        self.execution_engine.as_ref().ok_or_else(|| WroneState().into())
+        self._context.execution_engine().ok_or_else(|| WroneState().into())
     }
 
     pub fn new((instructions, instruction_count): (&[(usize, InstructionType)], usize), memory_instruction_set: &MemoryInstructionSet) -> Result<Self> {
-        let context: &'static Context = Box::leak(Box::new(Context::create()));
-        let module = context.create_module("jit");
+        let mut context = RuntimeContext::default();
+        let context_ref: &'static Context = unsafe { context.context() };
+        let module = context_ref.create_module("jit");
         let global_builder = Rc::new(RefCell::new(GlobalBuilder {
             symbol_maps: Default::default(),
             module: Rc::new(module),
-            context,
+            context: context_ref,
             memory_instruction_set: memory_instruction_set.clone(),
         }));
-        let jit_instructions = LLVMFunctionBuilder::generate_instruction_set_jit(instructions, instruction_count, context, global_builder.clone())?;
-        let GlobalBuilder { symbol_maps, module, memory_instruction_set: _, context } = Rc::try_unwrap(global_builder).unwrap().into_inner();
+        let jit_instructions = LLVMFunctionBuilder::generate_instruction_set_jit(instructions, instruction_count, global_builder.clone())?;
+        let GlobalBuilder { symbol_maps, module, memory_instruction_set: _, context: _ } = Rc::try_unwrap(global_builder).unwrap().into_inner();
         let execution_engine = module.create_jit_execution_engine(inkwell::OptimizationLevel::Aggressive).map_err(|e| format_err!("llvm error: {}", e))?;
         for (symbol, ptr) in symbol_maps {
             execution_engine.add_global_mapping(&symbol, ptr as usize);
         }
-        let this = Self { instructions: jit_instructions, context: NonNull::from(context), execution_engine: Some(execution_engine) };
+        context.set_execution_engine(Some(execution_engine));
+        let this = Self { instructions: jit_instructions, _context: context };
         Ok(this)
     }
 
     pub fn generate_function<'ctx>(&self, ir: &ObjectRef, function_type: &FunctionType) -> Result<(Module<'ctx>, FunctionValue<'ctx>)> {
-        let context = self.context();
+        let context: &'static Context = unsafe { self._context.context() };
         let module = context.create_module("jit_function_");
         let usize_type = context.custom_width_int_type(usize::BITS);
         let mut regs = HashMap::<(u16, Type), PointerValue<'ctx>>::new();
@@ -223,11 +214,20 @@ impl RawJITCompiler {
                     params.get(0..jit_instruction.constants.len()).unwrap().iter().zip(jit_instruction.constants.iter()).enumerate()
                 {
                     match constants {
-                        JITConstantKind::Const(_, constant_offset) | JITConstantKind::Mut(_, constant_offset) => {
+                        JITConstantKind::Const(value_type, constant_offset) => {
                             let ptr: NonNull<u8> = ir_buffer.get_ptr(constant_start + constant_offset);
+                            let value_llvm_type = vm_type_to_llvm_type(value_type, context)?;
                             let pointer_value = usize_type.const_int((ptr.as_ptr() as usize).try_into()?, false);
-                            let pointer_value = builder.build_int_to_ptr(pointer_value, llvm_type.into_pointer_type(), &format!("constnat_{}", index));
-                            dbg!(llvm_type.print_to_string());
+                            let pointer_value =
+                                builder.build_int_to_ptr(pointer_value, value_llvm_type.ptr_type(AddressSpace::Const), &format!("constnat_{}", index));
+                            args.push(pointer_value.into());
+                        }
+                        JITConstantKind::Mut(value_type, constant_offset) => {
+                            let ptr: NonNull<u8> = ir_buffer.get_ptr(constant_start + constant_offset);
+                            let value_llvm_type = vm_type_to_llvm_type(value_type, context)?;
+                            let pointer_value = usize_type.const_int((ptr.as_ptr() as usize).try_into()?, false);
+                            let pointer_value =
+                                builder.build_int_to_ptr(pointer_value, value_llvm_type.ptr_type(AddressSpace::Generic), &format!("constnat_{}", index));
                             args.push(pointer_value.into());
                         }
                         JITConstantKind::BasicBlock(constant_offset) => {
@@ -245,7 +245,6 @@ impl RawJITCompiler {
                         }
                     }
                 }
-                dbg!(constant_start, jit_instruction);
                 for (index, operand_type) in jit_instruction.operand_types.iter().enumerate() {
                     let reg = unsafe {
                         ir_buffer
@@ -270,7 +269,10 @@ impl RawJITCompiler {
                 let ret = builder.build_call(*instruction_function_decl, &*args, &format!("call_{}", ip));
                 if jit_instruction.is_returned {
                     if let Some(ret) = ret.try_as_basic_value().left() {
-                        builder.build_return(Some(&ret));
+                        if let Some(return_type) = function_type.return_type() {
+                            let ret = bitcast_from_int(ret.into_int_value(), context, &builder, vm_type_to_llvm_type(return_type, context)?)?;
+                            builder.build_return(Some(&ret));
+                        }
                     } else {
                         builder.build_return(None);
                     }
@@ -300,8 +302,10 @@ impl RawJITCompiler {
             }
         }
         entry_builder.build_unconditional_branch(first_block);
-        module.print_to_stderr();
-        module.verify().map_err(|e| LLVMVerifyFailed(e.to_string()))?;
+        module.verify().map_err(|e| {
+            dbg!(module.print_to_string());
+            LLVMVerifyFailed(e.to_string())
+        })?;
         Ok((module, function))
     }
 
@@ -338,7 +342,6 @@ impl<S: InstructionSet, M: MemoryInstructionSetProvider> JITCompiler<S, M> {
     pub fn compile(&self, pack: FunctionPack<S>) -> Fallible<ObjectRef> {
         let raw = self.raw().lock().map_err(|_| LockFailed())?;
         let (module, function_value) = raw.generate_function(pack.byte_code(), pack.function_type())?;
-        module.print_to_stderr();
         raw.execution_engine()?.add_module(&module).map_err(|_| AddModuleError())?;
         let function = raw.wrap_function(function_value, pack.output.unwrap_or_default())?;
         Ok(function)

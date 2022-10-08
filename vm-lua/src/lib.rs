@@ -10,9 +10,13 @@
 #![feature(slice_ptr_len)]
 #![feature(nonnull_slice_from_raw_parts)]
 #![feature(const_convert)]
+pub use core;
 use log::debug;
 use log::error;
 use log::trace;
+pub use runtime;
+pub use util;
+use vm_core::RuntimeTrait;
 
 use std::sync::Arc;
 use std::{cell::UnsafeCell, collections::{HashMap, HashSet}, ptr::NonNull};
@@ -20,8 +24,6 @@ use std::{cell::UnsafeCell, collections::{HashMap, HashSet}, ptr::NonNull};
 use failure::Fallible;
 use lazy_static::lazy_static;
 use lexical::Lexical;
-use llvm_runtime::Interpreter;
-use llvm_runtime::JITCompiler;
 use lua_lexical::LuaLexical;
 use mem::*;
 use memory_mmmu::MemoryMMMU;
@@ -29,10 +31,9 @@ use runtime::code::FunctionPack;
 use runtime_extra::{Bool, NullableOption, NullableOptionImpl, NullablePointer, NullablePointerImpl, Usize, U64, U8};
 use vm_core::{Direct, ExecutableResourceTrait, MemoryTrait, ObjectRef, Pointer, ResourceFactory, TypeDeclaration, UnsizedArray};
 
-use crate::ir::LuaInstructionSet;
+pub use crate::ir::LuaInstructionSet;
 #[macro_use]
 extern crate lexical_derive;
-#[macro_use]
 extern crate lexical;
 #[macro_use]
 extern crate failure;
@@ -52,19 +53,7 @@ pub mod error;
 pub mod instruction;
 pub mod ir;
 pub mod mem;
-// pub mod shell;
 pub mod syntax;
-// pub mod syntax {
-//     use crate::{ir::LuaInstructionSet, lua_lexical::LuaLexical, mem::LuaStateReference};
-//     use failure::Fallible;
-//     use runtime::code::FunctionPack;
-//     pub fn parse(
-//         lua_state: LuaStateReference,
-//         _source: Vec<LuaLexical>,
-//     ) -> Fallible<Vec<FunctionPack<LuaInstructionSet>>> {
-//         todo!()
-//     }
-// }
 pub fn add_global_function(state: LuaStateReference, key: &str, function: &LuaFunctionRustType) -> Fallible<()> {
     add_global(
         state.clone(),
@@ -85,7 +74,7 @@ pub fn new_string(state: Pointer<LuaState>, buffer: &[u8]) -> Fallible<LuaValueI
                     .cast(),
             );
             let mut string_ptr = string.as_pointer();
-            let mut string_ref = string_ptr.as_ref_mut();
+            let string_ref = string_ptr.as_ref_mut();
             string_ref.set_lua_state(state);
             string_ref.ref_data_mut().set_len(buffer.len());
             string_ref
@@ -245,8 +234,15 @@ pub fn new_state() -> Fallible<LuaStateReference> {
         Ok(state)
     }
 }
+#[cfg(feature = "runtime")]
 pub type LuaInterpreter = Interpreter<LuaInstructionSet, MemoryMMMU>;
+#[cfg(feature = "runtime")]
 pub type LuaJIT = JITCompiler<LuaInstructionSet, MemoryMMMU>;
+#[cfg(feature = "runtime")]
+use llvm_runtime::Interpreter;
+#[cfg(feature = "runtime")]
+use llvm_runtime::JITCompiler;
+#[cfg(feature = "runtime")]
 lazy_static! {
     pub static ref LUA_INTERPRETER: Interpreter<LuaInstructionSet, MemoryMMMU> = {
         match Interpreter::new() {
@@ -255,6 +251,7 @@ lazy_static! {
         }
     };
 }
+#[cfg(feature = "runtime")]
 lazy_static! {
     pub static ref LUA_JIT: JITCompiler<LuaInstructionSet, MemoryMMMU> = {
         match JITCompiler::new() {
@@ -271,20 +268,26 @@ pub fn pack_code(lua_state: LuaStateReference, code: &str) -> Fallible<Vec<Funct
     debug!(target:"vm_lua::pack_code","function pack: {:?}", pack);
     Ok(pack)
 }
-pub fn load_code(lua_state: LuaStateReference, code: &str) -> Fallible<ObjectRef> {
+pub fn load_code<R>(lua_state: LuaStateReference, code: &str, runtime: &R) -> Fallible<ObjectRef>
+where
+    R: RuntimeTrait<FunctionPack<LuaInstructionSet>>,
+    R::ResourceImpl: ExecutableResourceTrait<FunctionPack<LuaInstructionSet>>,
+{
     let mut pack = pack_code(lua_state, code)?;
     let root_function = pack.pop().unwrap();
-    // let resource = LUA_INTERPRETER.create(root_function)?;
-    let resource = LUA_JIT.create(root_function)?;
+    let resource = runtime.create(root_function)?;
     for closure in pack {
-        // LUA_INTERPRETER.create(closure)?;
-        LUA_JIT.create(closure)?;
+        runtime.create(closure)?;
     }
     let object = ExecutableResourceTrait::<FunctionPack<LuaInstructionSet>>::get_object(&*resource)?;
     Ok(object)
 }
-pub fn run_code(lua_state: LuaStateReference, code: &str) -> Fallible<()> {
-    let resource = load_code(lua_state.clone(), code)?;
+pub fn run_code<R>(lua_state: LuaStateReference, code: &str, runtime: &R) -> Fallible<()>
+where
+    R: RuntimeTrait<FunctionPack<LuaInstructionSet>>,
+    R::ResourceImpl: ExecutableResourceTrait<FunctionPack<LuaInstructionSet>>,
+{
+    let resource = load_code(lua_state.clone(), code, runtime)?;
     unsafe {
         let function: LuaFunctionRustType = std::mem::transmute(resource.lock().unwrap().get_export_ptr(0));
         let args = &[];
@@ -292,66 +295,6 @@ pub fn run_code(lua_state: LuaStateReference, code: &str) -> Fallible<()> {
     }
     Ok(())
 }
-pub fn spawn(lua_state: LuaStateReference, code: String) -> std::thread::JoinHandle<()> {
-    std::thread::spawn(move || {
-        let code = code;
-        match run_code(lua_state, &code) {
-            Ok(_) => {}
-            Err(e) => {
-                error!("{}", e);
-                trace!("{:?}", e);
-            }
-        };
-    })
-}
 pub fn hello() {
     println!("[ zitao lua 虚拟机 v{} ]", &env!("CARGO_PKG_VERSION"));
-}
-#[cfg(test)]
-mod tests {
-    use failure::Fallible;
-    use llvm_runtime::Interpreter;
-    use log::debug;
-    use memory_mmmu::MemoryMMMU;
-    use scan_dir::ScanDir;
-    use std::io::{stderr, Write};
-    use std::path::PathBuf;
-
-    use util::set_signal_handler;
-    // #[test]
-    fn check_ir() -> Fallible<()> {
-        let _ = crate::new_state()?;
-        match Interpreter::<crate::ir::LuaInstructionSet, MemoryMMMU>::new() {
-            Ok(o) => o,
-            Err(e) => panic!("{}", e),
-        };
-        Ok(())
-    }
-    #[test]
-    fn run_scipts_in_tests_dir() -> Fallible<()> {
-        env_logger::init();
-        set_signal_handler();
-        let mut index = 0;
-        let mut d = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-        d.push("tests");
-        ScanDir::files().read(d, |iter| {
-            for (entry, name) in iter {
-                match (|| {
-                    if name.ends_with(".lua") {
-                        debug!(target : "test_scripts", "loading:{}, index:{}\n", &name, &index);
-                        let code = std::fs::read_to_string(entry.path())?;
-                        let state = crate::new_state()?;
-                        crate::run_code(state, &*code)?;
-                        debug!(target : "test_scripts", "finish:{}\n", &name);
-                    }
-                    Fallible::Ok(())
-                })() {
-                    Ok(o) => o,
-                    Err(e) => panic!("{}\n{:?}", &e, e),
-                };
-                index += 1;
-            }
-        })?;
-        Ok(())
-    }
 }

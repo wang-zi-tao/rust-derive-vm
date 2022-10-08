@@ -6,7 +6,7 @@ use vm_lua::LUA_INTERPRETER;
 
 fn main() -> Fallible<()> {
     env_logger::init();
-    vm_lua::set_signal_handler();
+    vm_lua::util::set_signal_handler();
     let _ = &*LUA_INTERPRETER;
     let vm = vm_wenyan::创建虚拟机()?;
     vm_wenyan::打招呼();
@@ -18,7 +18,7 @@ fn main() -> Fallible<()> {
         if len == 0 || &code == "\n" {
             break;
         }
-        if let Err(e) = vm_wenyan::运行代码(vm.clone(), &code) {
+        if let Err(e) = vm_wenyan::运行代码(vm.clone(), &code, &*LUA_INTERPRETER) {
             error!("{e}")
         };
     }

@@ -24,7 +24,7 @@
               cargo-expand
               (fenix.packages.${system}.fromToolchainFile {
                 file = ./rust-toolchain.toml;
-                sha256 = "sha256-Ws1TG1Jkessdil6wIr8+RpAG0wZdYsZ6Wb9p3LEHLFk=";
+                sha256 = "sha256-IhQBLTVTYYcgt0ZKKH1AnOm9Dgmz6RPYThnIWRGf3Rw=";
               })
             ];
             LLVM_SYS_100_PREFIX = "${pkgs.llvmPackages_10.llvm}";

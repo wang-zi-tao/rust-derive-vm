@@ -435,7 +435,7 @@ impl<'b> ObjectBuilder<'b> {
         for (_symbol_index, symbol) in b1.symbols.iter_mut().enumerate().take(symbol_offset) {
             for (mut usage, mut relocation_index) in symbol
                 .usage
-                .drain_filter(|(usage_symbol, _relocation_index)| !matches!(usage_symbol,ObjectBuilderExport::Builder(b)if b==&builder2))
+                .drain_filter(|(usage_symbol, _relocation_index)| matches!(usage_symbol,ObjectBuilderExport::Builder(b)if b==&builder2))
                 .collect::<Vec<_>>()
             {
                 match &usage {
@@ -455,9 +455,9 @@ impl<'b> ObjectBuilder<'b> {
             for (mut usage, mut relocation_index) in symbol
                 .usage
                 .drain_filter(|(usage_symbol, _relocation_index)| match usage_symbol {
-                    ObjectBuilderExport::Reflexive => false,
-                    ObjectBuilderExport::Builder(b) if b == &builder1 || b == &builder2 => false,
-                    _ => true,
+                    ObjectBuilderExport::Reflexive => true,
+                    ObjectBuilderExport::Builder(b) if b == &builder1 || b == &builder2 => true,
+                    _ => false,
                 })
                 .collect::<Vec<_>>()
             {

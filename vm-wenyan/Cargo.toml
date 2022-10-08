@@ -20,3 +20,15 @@ runtime={path="../runtime/"}
 runtime-extra={path="../runtime-extra"}
 vm-core={path="../vm-core"}
 chinese-number = "0.6.4"
+memory-mmmu={path="../memory-impl/memory-mmmu"}
+llvm-runtime={path="../runtime-impl/llvm-runtime",optional=true}
+
+[features]
+runtime=["llvm-runtime"]
+
+[dev-dependencies]
+llvm-runtime={path="../runtime-impl/llvm-runtime"}
+
+[[bin]]
+name="vm-wenyan"
+required-features = ["runtime"]

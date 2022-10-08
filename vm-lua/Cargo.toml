@@ -12,7 +12,6 @@ lexical-derive={path="../lexical-derive"}
 runtime={path="../runtime"}
 runtime-derive={path="../runtime-derive"}
 runtime-extra={path="../runtime-extra"}
-llvm-runtime={path="../runtime-impl/llvm-runtime"}
 syntax={path="../syntax"}
 syntax-derive={path="../syntax-derive"}
 memory-mmmu={path="../memory-impl/memory-mmmu"}
@@ -32,3 +31,14 @@ static_assertions = "1.1.0"
 log = "0.4.0"
 scan_dir = "0.3.3"
 env_logger = "0.9.0"
+llvm-runtime={path="../runtime-impl/llvm-runtime",optional=true}
+
+[features]
+runtime=["llvm-runtime"]
+
+[dev-dependencies]
+llvm-runtime={path="../runtime-impl/llvm-runtime"}
+
+[[bin]]
+name="vm-lua"
+required-features = ["runtime"]
