@@ -143,11 +143,12 @@ impl SyntaxLR1 {
             }
         }
         let generate_action = |terminal: &Option<Rc<Terminal>>, operation: &Action| -> Result<TokenStream2> {
-            let stack_to_push = terminal.as_ref().and_then(|t| if stack_map.contains_key(&Symbol::Terminal(t.clone())) { Some(&t.ident) } else { None });
             let case_body = match operation {
                 Action::Shift(next) => {
                     let next_state_id = next.try_borrow().unwrap().id;
-                    let push_value = stack_to_push
+                    let push_value = terminal
+                        .as_ref()
+                        .and_then(|t| if stack_map.contains_key(&Symbol::Terminal(t.clone())) { Some(&t.ident) } else { None })
                         .map(|stack| {
                             let stack_ident = Ident::new(&format!("stack_{}", stack.to_string().to_lowercase()), stack.span());
                             let push_next = terminal.as_ref().map_or_else(
@@ -286,38 +287,49 @@ impl SyntaxLR1 {
             let mut excepts = Vec::new();
             for (terminal, operation) in &node.action_map {
                 excepts.push(terminal.as_ref().map(|t| t.ident.to_string()).unwrap_or_else(|| "no thing".to_string()));
-                match action_map.entry((terminal.clone(), operation.clone())) {
+                let terminal_key = match operation {
+                    Action::Shift(_) => terminal.clone(),
+                    _ => None,
+                };
+                match action_map.entry((terminal_key, operation.clone())) {
                     std::collections::btree_map::Entry::Vacant(v) => {
-                        v.insert((generate_action(terminal, operation)?, Vec::new())).1.push(node_cell.clone());
+                        v.insert((generate_action(terminal, operation)?, Vec::new())).1.push((terminal.clone(), node_cell.clone()));
                     }
-                    std::collections::btree_map::Entry::Occupied(mut o) => o.get_mut().1.push(node_cell.clone()),
+                    std::collections::btree_map::Entry::Occupied(mut o) => o.get_mut().1.push((terminal.clone(), node_cell.clone())),
                 };
             }
         }
-        let mut state_transition = Vec::new();
-        for ((terminal, _action), (tokens, nodes)) in action_map {
-            let next_token_patten = terminal.as_ref().map_or_else(
-                || quote! {None},
-                |terminal_unwrap| {
-                    let ident = &terminal_unwrap.ident;
-                    let match_patten = match terminal_unwrap.variant_kind {
-                        VariantKind::None => quote! {#ident},
-                        VariantKind::Truple => quote! {#ident(_)},
-                    };
-                    quote! {
-                      Some(#token_type::#match_patten)
-                    }
-                },
-            );
-            let node_id_list: Vec<_> = nodes.iter().map(|node| node.borrow().id).collect();
-            let patten = quote! {(#(#node_id_list)|*,#next_token_patten)};
-            let match_case = quote! {
-              #patten=>{
-                #tokens
-              },
-            };
-            state_transition.push(match_case);
-        }
+        let mut state_transition = action_map
+            .into_iter()
+            .map(|((_terminal, _action), (tokens, match_keys))| {
+                let match_list: Vec<_> = match_keys
+                    .iter()
+                    .map(|(terminal, node)| {
+                        let terminal_patten = terminal.as_ref().map_or_else(
+                            || quote! {None},
+                            |terminal_unwrap| {
+                                let ident = &terminal_unwrap.ident;
+                                let match_patten = match terminal_unwrap.variant_kind {
+                                    VariantKind::None => quote! {#ident},
+                                    VariantKind::Truple => quote! {#ident(_)},
+                                };
+                                quote! {
+                                  Some(#token_type::#match_patten)
+                                }
+                            },
+                        );
+                        let id = node.borrow().id;
+                        quote! {(#id,#terminal_patten)}
+                    })
+                    .collect();
+                let patten = quote! {#(#match_list)|*};
+                quote! {
+                  #patten=>{
+                    #tokens
+                  },
+                }
+            })
+            .collect::<Vec<_>>();
         for (node_id, node_cell) in nodes.iter().enumerate() {
             let node = node_cell.try_borrow().unwrap();
             let mut excepts = Vec::new();
