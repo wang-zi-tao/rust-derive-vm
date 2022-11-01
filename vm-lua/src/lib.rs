@@ -16,6 +16,7 @@ use log::error;
 use log::trace;
 pub use runtime;
 pub use util;
+use vm_core::DynRuntimeTrait;
 use vm_core::RuntimeTrait;
 
 use std::sync::Arc;
@@ -218,13 +219,15 @@ pub fn new_meta_functions() -> Fallible<LuaMetaFunctionsReference> {
         Ok(meta_functions)
     }
 }
-pub fn new_state() -> Fallible<LuaStateReference> {
+pub type LuaRuntime = Arc<dyn DynRuntimeTrait<FunctionPack<LuaInstructionSet>>>;
+pub fn new_state(runtime: LuaRuntime) -> Fallible<LuaStateReference> {
     unsafe {
         let string_meta_functions = new_meta_functions()?;
         let state = LuaStateReference(LuaStateReference::get()?.alloc()?.cast());
         let mut state_ptr = state.as_pointer();
         let state_ref = state_ptr.as_ref_mut();
         state_ref.set_strings(HashSet::<LuaStringNativeReference>::new());
+        state_ref.set_runtime(runtime);
         state_ref.set_string_meta_functions(string_meta_functions.as_pointer());
         state_ref.set_gc_mark(Bool(false));
         state_ref.set_table_shape(new_shape(new_meta_functions()?, false)?.as_pointer());
@@ -244,21 +247,17 @@ use llvm_runtime::Interpreter;
 use llvm_runtime::JITCompiler;
 #[cfg(feature = "runtime")]
 lazy_static! {
-    pub static ref LUA_INTERPRETER: Interpreter<LuaInstructionSet, MemoryMMMU> = {
-        match Interpreter::new() {
-            Ok(o) => o,
-            Err(e) => panic!("{}", e),
-        }
-    };
+    pub static ref LUA_INTERPRETER: Arc<Interpreter<LuaInstructionSet, MemoryMMMU>> = Arc::new(match Interpreter::new() {
+        Ok(o) => o,
+        Err(e) => panic!("{}", e),
+    });
 }
 #[cfg(feature = "runtime")]
 lazy_static! {
-    pub static ref LUA_JIT: JITCompiler<LuaInstructionSet, MemoryMMMU> = {
-        match JITCompiler::new() {
-            Ok(o) => o,
-            Err(e) => panic!("{}", e),
-        }
-    };
+    pub static ref LUA_JIT: Arc<JITCompiler<LuaInstructionSet, MemoryMMMU>> = Arc::new(match JITCompiler::new() {
+        Ok(o) => o,
+        Err(e) => panic!("{}", e),
+    });
 }
 pub fn pack_code(lua_state: LuaStateReference, code: &str) -> Fallible<Vec<FunctionPack<LuaInstructionSet>>> {
     debug!(target:"vm_lua::pack_code","code: {:?}", code);
@@ -268,26 +267,20 @@ pub fn pack_code(lua_state: LuaStateReference, code: &str) -> Fallible<Vec<Funct
     debug!(target:"vm_lua::pack_code","function pack: {:?}", pack);
     Ok(pack)
 }
-pub fn load_code<R>(lua_state: LuaStateReference, code: &str, runtime: &R) -> Fallible<ObjectRef>
-where
-    R: RuntimeTrait<FunctionPack<LuaInstructionSet>>,
-    R::ResourceImpl: ExecutableResourceTrait<FunctionPack<LuaInstructionSet>>,
-{
-    let mut pack = pack_code(lua_state, code)?;
+pub fn load_code(lua_state: LuaStateReference, code: &str) -> Fallible<ObjectRef> {
+    let mut pack = pack_code(lua_state.clone(), code)?;
     let root_function = pack.pop().unwrap();
-    let resource = runtime.create(root_function)?;
+    let lua_state_pointer = lua_state.as_pointer();
+    let runtime = unsafe { lua_state_pointer.as_ref().ref_runtime() };
+    let resource = runtime.create_dyn(root_function)?;
     for closure in pack {
-        runtime.create(closure)?;
+        runtime.create_dyn(closure)?;
     }
-    let object = ExecutableResourceTrait::<FunctionPack<LuaInstructionSet>>::get_object(&*resource)?;
+    let object = resource.get_object()?;
     Ok(object)
 }
-pub fn run_code<R>(lua_state: LuaStateReference, code: &str, runtime: &R) -> Fallible<()>
-where
-    R: RuntimeTrait<FunctionPack<LuaInstructionSet>>,
-    R::ResourceImpl: ExecutableResourceTrait<FunctionPack<LuaInstructionSet>>,
-{
-    let resource = load_code(lua_state.clone(), code, runtime)?;
+pub fn run_code(lua_state: LuaStateReference, code: &str) -> Fallible<()> {
+    let resource = load_code(lua_state.clone(), code)?;
     unsafe {
         let function: LuaFunctionRustType = std::mem::transmute(resource.lock().unwrap().get_export_ptr(0));
         let args = &[];

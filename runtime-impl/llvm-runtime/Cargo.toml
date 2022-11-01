@@ -8,8 +8,6 @@ edition = "2018"
 [dependencies]
 vm-core={path="../../vm-core"}
 runtime={path="../../runtime"}
-# runtime-extra={path="../../runtime-extra"}
-# runtime-derive={path="../../runtime-derive"}
 util={path="../../util"}
 util-derive={path="../../util-derive"}
 failure = "0.1.8"
@@ -21,3 +19,6 @@ either = "1.6.1"
 libffi = "3.0.0"
 arc-swap = "1.5.0"
 smallvec = "1.8.0"
+
+[lib]
+crate-type = ["rlib","dylib"]

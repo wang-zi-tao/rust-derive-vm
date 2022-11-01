@@ -12,7 +12,7 @@ make_instruction_set! {
     GetGlobal->i::GetGlobal,SetGlobal->i::SetGlobal,//13
     GetField->i::GetField, SetField->i::SetField,//15
     GetElement->i::GetElement, SetElement->i::SetElement,//17
-    I64ToValue->i::I64ToValue, F64ToValue->i::F64ToValue,//19
+    I64ToValue->i::I64ToValue, F64ToValue->i::F64ToValue,
     I64ToF64->e::I64ToF64, F64ToI64->i::F64ToI64,//21
     IAdd->e::I64Add, FAdd->e::F64Add, Add->i::Add,//24
     ISub->e::I64Sub, FSub->e::F64Sub, Sub->i::Sub,//27

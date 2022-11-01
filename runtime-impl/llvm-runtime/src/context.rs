@@ -1,5 +1,4 @@
 use failure::{format_err, Fallible};
-use getset::{CopyGetters, Getters};
 use inkwell::{context::Context as LLVMContext, execution_engine::ExecutionEngine, module::Module};
 use std::{ops::Deref, ptr::NonNull};
 
@@ -38,7 +37,7 @@ impl RuntimeContext {
 
     pub fn create_execution_engine(&mut self, module: Module<'static>) -> Fallible<()> {
         if let Some(execution_engine) = &mut self.execution_engine {
-            execution_engine.add_module(&module);
+            execution_engine.add_module(&module).map_err(|_| format_err!("failed to add module"))?;
         } else {
             self.execution_engine = Some(module.create_execution_engine().map_err(|e| format_err!("llvm error: {:?}", e))?);
         }

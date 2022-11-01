@@ -8,7 +8,7 @@ fn main() -> Fallible<()> {
     env_logger::init();
     set_signal_handler();
     let _ = &*LUA_INTERPRETER;
-    let vm = vm_lua::new_state()?;
+    let vm = vm_lua::new_state(LUA_INTERPRETER.clone())?;
     println!("[ zitao lua 虚拟机 v{} ]", &env!("CARGO_PKG_VERSION"));
     loop {
         print!("");
@@ -18,7 +18,7 @@ fn main() -> Fallible<()> {
         if len == 0 || &code == "\n" {
             break;
         }
-        if let Err(e) = vm_lua::run_code(vm.clone(), &code, &*LUA_INTERPRETER) {
+        if let Err(e) = vm_lua::run_code(vm.clone(), &code) {
             error!("{e}")
         };
     }

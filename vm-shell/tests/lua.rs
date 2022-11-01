@@ -5,6 +5,7 @@ use memory_mmmu::MemoryMMMU;
 use std::{
     io::{stderr, Write},
     path::PathBuf,
+    sync::Arc,
 };
 
 use vm_lua::util::set_signal_handler;
@@ -17,8 +18,8 @@ pub type LuaJIT = JITCompiler<LuaInstructionSet, MemoryMMMU>;
 fn run_lua_script() -> Fallible<()> {
     env_logger::init();
     set_signal_handler();
-    let state = vm_lua::new_state()?;
-    let code = "a=print+1";
-    vm_lua::run_code(state, code, &LuaInterpreter::new()?)?;
+    let state = vm_lua::new_state(Arc::new(LuaInterpreter::new()?))?;
+    let code = "a=print(1)";
+    vm_lua::run_code(state, code)?;
     Ok(())
 }

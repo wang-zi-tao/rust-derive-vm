@@ -1,6 +1,5 @@
 use std::{
     convert::TryInto,
-    ffi::c_void,
     mem::MaybeUninit,
     ptr::null,
     sync::{Arc, Mutex},
@@ -13,13 +12,11 @@ use inkwell::{
     module::Module,
     values::{CallableValue, PointerValue},
 };
-use libffi::{
-    middle::{Callback, Cif, Closure, Type},
-    raw::ffi_cif,
-};
+use libffi::middle::{Callback, Cif, Closure, Type};
 use util::CowArc;
 use vm_core::{
-    FunctionType, IntKind, ObjectBuilder, ObjectBuilderImport, ObjectBuilderInner, ObjectRef, RelocationKind, SymbolBuilder, Tuple, _ghost_cell::GhostToken,
+    DynRuntimeTrait, FunctionType, IntKind, ObjectBuilder, ObjectBuilderImport, ObjectBuilderInner, ObjectRef, RelocationKind, ResourceConverter,
+    SymbolBuilder, Tuple, _ghost_cell::GhostToken,
 };
 
 use std::{any::Any, cell::RefCell, fmt::Debug, marker::PhantomData, rc::Rc, sync::RwLock};
@@ -36,7 +33,7 @@ use runtime::{
     mem::MemoryInstructionSetProvider,
 };
 use util::AsAny;
-use vm_core::{Component, ExecutableResourceTrait, Resource, ResourceError, ResourceFactory, RuntimeTrait};
+use vm_core::{Component, ExecutableResourceTrait, Resource, ResourceError, RuntimeTrait};
 
 pub struct RawInterpreter {
     binder: FunctionBinder,
@@ -105,24 +102,22 @@ impl<S: InstructionSet + 'static, M: MemoryInstructionSetProvider + 'static> AsA
 }
 impl<S: InstructionSet, M: MemoryInstructionSetProvider> Interpreter<S, M> {}
 impl<S: InstructionSet, M: MemoryInstructionSetProvider> vm_core::Module for Interpreter<S, M> {}
-impl<S: InstructionSet, M: MemoryInstructionSetProvider> ResourceFactory<FunctionPack<S>> for Interpreter<S, M> {
-    type ResourceImpl = InterpreterFunction;
-
-    fn define(&self) -> Fallible<Arc<Self::ResourceImpl>> {
+impl<S: InstructionSet, M: MemoryInstructionSetProvider> ResourceConverter<FunctionPack<S>, InterpreterFunction> for Interpreter<S, M> {
+    fn define(&self) -> Fallible<Arc<InterpreterFunction>> {
         Ok(Arc::new(Default::default()))
     }
 
-    fn upload(&self, _resource: &Self::ResourceImpl, _input: FunctionPack<S>) -> Fallible<()> {
+    fn upload(&self, _resource: &InterpreterFunction, _input: FunctionPack<S>) -> Fallible<()> {
         Err(ResourceError::Unsupported.into())
     }
 
-    fn create(&self, input: FunctionPack<S>) -> Fallible<Arc<Self::ResourceImpl>> {
+    fn create(&self, input: FunctionPack<S>) -> Fallible<Arc<InterpreterFunction>> {
         let this = self.define()?;
         let ir = input.byte_code.clone();
         let bind = self
             .raw
             .lock()
-            .map_err(|e| format_err!("lock failed"))?
+            .map_err(|_e| format_err!("lock failed"))?
             .binder
             .bind(
                 ir.clone(),
@@ -141,7 +136,22 @@ impl<S: InstructionSet, M: MemoryInstructionSetProvider> ResourceFactory<Functio
         Ok(this)
     }
 }
-impl<S: InstructionSet, M: MemoryInstructionSetProvider> RuntimeTrait<FunctionPack<S>> for Interpreter<S, M> {}
+impl<S: InstructionSet, M: MemoryInstructionSetProvider> RuntimeTrait<FunctionPack<S>, InterpreterFunction> for Interpreter<S, M> {}
+
+impl<S: InstructionSet, M: MemoryInstructionSetProvider> DynRuntimeTrait<FunctionPack<S>> for Interpreter<S, M> {
+    fn define_dyn(&self) -> Fallible<Arc<dyn ExecutableResourceTrait<FunctionPack<S>>>> {
+        self.define().map(|i| i as Arc<dyn ExecutableResourceTrait<FunctionPack<S>>>)
+    }
+
+    fn create_dyn(&self, input: FunctionPack<S>) -> Fallible<Arc<dyn ExecutableResourceTrait<FunctionPack<S>>>> {
+        self.create(input).map(|i| i as Arc<dyn ExecutableResourceTrait<FunctionPack<S>>>)
+    }
+
+    fn upload_dyn(&self, resource: &dyn ExecutableResourceTrait<FunctionPack<S>>, input: FunctionPack<S>) -> Fallible<()> {
+        self.upload(resource.as_any().downcast_ref().ok_or_else(|| format_err!("wrone implements type"))?, input)
+    }
+}
+
 #[derive(Getters, Default)]
 #[getset(get = "pub")]
 pub struct InterpreterFunctionInner {
@@ -317,7 +327,7 @@ impl FunctionBinder {
         }
         let ret_type = if let Some(ret) = &function_type.return_type { convert_type(ret) } else { Type::void() };
         let cif = Cif::new(args_type, ret_type);
-        let callback = if (function_type.va_arg().is_some()) {
+        let callback = if function_type.va_arg().is_some() {
             self.enter_points.get(function_type.args().len()).copied().unwrap_or(self.enter_point_multi_arg)
         } else {
             self.enter_points_va_arg.get(function_type.args().len()).copied().unwrap_or(self.enter_point_multi_arg_va_arg)

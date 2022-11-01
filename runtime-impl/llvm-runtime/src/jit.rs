@@ -8,9 +8,9 @@ use std::{
     marker::PhantomData,
     mem::{align_of, size_of},
     num::TryFromIntError,
-    ptr::{null, NonNull},
+    ptr::NonNull,
     rc::Rc,
-    sync::{atomic::compiler_fence, Arc, Mutex},
+    sync::{Arc, Mutex},
     usize,
 };
 
@@ -20,9 +20,9 @@ use inkwell::{
     basic_block::BasicBlock,
     context::Context,
     execution_engine::{ExecutionEngine, FunctionLookupError},
-    module::{Linkage, Module},
+    module::Module,
     support::LLVMString,
-    types::{AnyType, BasicType},
+    types::BasicType,
     values::{FunctionValue, PointerValue},
     AddressSpace,
 };
@@ -32,11 +32,10 @@ use runtime::{
     mem::MemoryInstructionSetProvider,
 };
 
-use util::FromNode;
 use util_derive::AsAny;
 use vm_core::{
-    Component, ExecutableResourceTrait, FunctionType, ObjectBuilder, ObjectRef, Resource, ResourceError, ResourceFactory, RuntimeTrait, SymbolBuilder, Type,
-    _ghost_cell::GhostToken,
+    Component, DynRuntimeTrait, ExecutableResourceTrait, FunctionType, ObjectBuilder, ObjectRef, Resource, ResourceConverter, ResourceError, RuntimeTrait,
+    SymbolBuilder, Type, _ghost_cell::GhostToken,
 };
 
 #[derive(Debug, Fail)]
@@ -104,7 +103,6 @@ pub enum JITConstantKind {
 pub struct JITInstruction {
     pub(crate) function_name: Box<str>,
     pub(crate) align: usize,
-    pub(crate) size: usize,
     pub(crate) is_returned: bool,
     pub(crate) operand_types: Vec<Type>,
     pub(crate) constant_size: usize,
@@ -186,7 +184,7 @@ impl RawJITCompiler {
             _ => 8,
         };
         let mut ip = 0;
-        blocks.insert(ip, JITBasicBlock { offset: ip, llvm_block: block });
+        blocks.insert(ip, JITBasicBlock { llvm_block: block });
         let first_block = block;
         while let Some(block_start) = tasks.pop() {
             if finished_task.contains(&block_start) {
@@ -282,7 +280,7 @@ impl RawJITCompiler {
                     for goto in goto_list {
                         let goto_block = blocks
                             .entry(goto)
-                            .or_insert_with(|| JITBasicBlock { offset: goto, llvm_block: context.append_basic_block(function, &format!("block_{}", goto)) });
+                            .or_insert_with(|| JITBasicBlock { llvm_block: context.append_basic_block(function, &format!("block_{}", goto)) });
                         if !finished_task.contains(&goto) {
                             tasks.push(goto);
                         }
@@ -320,7 +318,6 @@ impl RawJITCompiler {
     }
 }
 struct JITBasicBlock<'ctx> {
-    offset: usize,
     llvm_block: BasicBlock<'ctx>,
 }
 #[derive(Getters)]
@@ -369,18 +366,16 @@ impl<S: InstructionSet, M: MemoryInstructionSetProvider> Debug for JITCompiler<S
     }
 }
 impl<S: InstructionSet, M: MemoryInstructionSetProvider> vm_core::Module for JITCompiler<S, M> {}
-impl<S: InstructionSet, M: MemoryInstructionSetProvider> ResourceFactory<FunctionPack<S>> for JITCompiler<S, M> {
-    type ResourceImpl = JITFunction;
-
-    fn define(&self) -> Fallible<Arc<Self::ResourceImpl>> {
+impl<S: InstructionSet, M: MemoryInstructionSetProvider> ResourceConverter<FunctionPack<S>, JITFunction> for JITCompiler<S, M> {
+    fn define(&self) -> Fallible<Arc<JITFunction>> {
         Ok(Arc::new(Default::default()))
     }
 
-    fn upload(&self, _resource: &Self::ResourceImpl, _input: FunctionPack<S>) -> Fallible<()> {
+    fn upload(&self, _resource: &JITFunction, _input: FunctionPack<S>) -> Fallible<()> {
         Err(ResourceError::Unsupported.into())
     }
 
-    fn create(&self, input: FunctionPack<S>) -> Fallible<Arc<Self::ResourceImpl>> {
+    fn create(&self, input: FunctionPack<S>) -> Fallible<Arc<JITFunction>> {
         let ir = input.byte_code().clone();
         let function = self.compile(input)?;
         Ok(Arc::new(JITFunction { ir, function }))
@@ -391,4 +386,18 @@ impl<S> ExecutableResourceTrait<FunctionPack<S>> for JITFunction {
         Ok(self.function.clone())
     }
 }
-impl<S: InstructionSet, M: MemoryInstructionSetProvider> RuntimeTrait<FunctionPack<S>> for JITCompiler<S, M> {}
+impl<S: InstructionSet, M: MemoryInstructionSetProvider> RuntimeTrait<FunctionPack<S>, JITFunction> for JITCompiler<S, M> {}
+
+impl<S: InstructionSet, M: MemoryInstructionSetProvider> DynRuntimeTrait<FunctionPack<S>> for JITCompiler<S, M> {
+    fn define_dyn(&self) -> Fallible<Arc<dyn ExecutableResourceTrait<FunctionPack<S>>>> {
+        self.define().map(|i| i as Arc<dyn ExecutableResourceTrait<FunctionPack<S>>>)
+    }
+
+    fn create_dyn(&self, input: FunctionPack<S>) -> Fallible<Arc<dyn ExecutableResourceTrait<FunctionPack<S>>>> {
+        self.create(input).map(|i| i as Arc<dyn ExecutableResourceTrait<FunctionPack<S>>>)
+    }
+
+    fn upload_dyn(&self, resource: &dyn ExecutableResourceTrait<FunctionPack<S>>, input: FunctionPack<S>) -> Fallible<()> {
+        self.upload(resource.as_any().downcast_ref().ok_or_else(|| format_err!("wrone implements type"))?, input)
+    }
+}

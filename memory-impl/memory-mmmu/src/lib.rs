@@ -49,8 +49,8 @@ use runtime::mem::MemoryInstructionSetProvider;
 use runtime_instruction_set::MEMORY_INSTRUCTION_SET;
 use util::{AtomicLazyArc, CowArc, CowWeak, DefaultArc, EmbedGraph};
 use vm_core::{
-    Component, MemoryTrait, Module, OOPTrait, Resource, ResourceError, ResourceFactory, ResourceState, Singleton, SingletonDyn, Tuple, Type, TypeLayout,
-    TypeResource,
+    Component, MemoryTrait, Module, OOPTrait, Resource, ResourceConverter, ResourceError, ResourceFactory, ResourceState, Singleton, SingletonDyn, Tuple, Type,
+    TypeLayout, TypeResource,
 };
 
 #[derive(Default, Getters)]
@@ -84,28 +84,19 @@ impl Singleton for MemoryMMMU {
         &MMMU
     }
 }
-// impl SingletonDyn<dyn MemoryTrait> for MemoryMMMU {
-//     fn get_instance<'l>() -> &'l dyn MemoryTrait {
-//         &MMMU
-//     }
-// }
-// impl SingletonDyn<dyn ResourceFactory<Type>> for MemoryMMMU {
-//     fn get_instance<'l>() -> &'l dyn ResourceFactory<Type> {
-//         &MMMU
-//     }
-// }
 
 impl Module for MemoryMMMU {}
-impl ResourceFactory<Type> for MemoryMMMU {
-    type ResourceImpl = RegistedType;
-
-    fn define(&self) -> failure::Fallible<Arc<Self::ResourceImpl>> {
+impl ResourceConverter<Type, RegistedType> for MemoryMMMU {
+    fn define(&self) -> failure::Fallible<Arc<RegistedType>> {
         Ok(RegistedType::new())
     }
 
-    fn upload(&self, resource: &Self::ResourceImpl, ty: Type) -> failure::Fallible<()> {
+    fn upload(&self, resource: &RegistedType, ty: Type) -> failure::Fallible<()> {
         resource.upload(ty)
     }
+}
+impl ResourceFactory<Type> for MemoryMMMU {
+    type ResourceImpl = RegistedType;
 }
 impl MemoryTrait for MemoryMMMU {
     fn alloc(&self, ty: &Arc<(dyn TypeResource + 'static)>) -> Fallible<NonNull<u8>> {

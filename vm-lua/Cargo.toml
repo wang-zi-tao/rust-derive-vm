@@ -42,3 +42,9 @@ llvm-runtime={path="../runtime-impl/llvm-runtime"}
 [[bin]]
 name="vm-lua"
 required-features = ["runtime"]
+
+[profile.release]
+lto = true
+
+[lib]
+crate-type = ["rlib","dylib"]

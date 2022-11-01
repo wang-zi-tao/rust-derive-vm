@@ -1,7 +1,8 @@
-use crate::TypeResourceImpl;
+use crate::{ir::LuaInstructionSet, TypeResourceImpl};
 
 use lexical::_lazy_static::lazy_static;
-use vm_core::{make_reference, Aligned, Direct, FunctionType, MoveIntoObject, Native, ObjectBuilder, ObjectBuilderImport, ObjectBuilderInner, Pointer, Reference, Resource, SymbolBuilderRef, SymbolRef, Type, TypeDeclaration, TypeLayout, UnsizedArray};
+use runtime::code::FunctionPack;
+use vm_core::{make_reference, Aligned, Direct, DynRuntimeTrait, FunctionType, MoveIntoObject, Native, ObjectBuilder, ObjectBuilderImport, ObjectBuilderInner, Pointer, Reference, Resource, SymbolBuilderRef, SymbolRef, Type, TypeDeclaration, TypeLayout, UnsizedArray};
 
 use runtime_extra::ty::*;
 use std::cell::UnsafeCell;
@@ -10,12 +11,14 @@ use std::hash::Hasher;
 use std::marker::PhantomData;
 use std::ops::Deref;
 use std::ptr::NonNull;
+use std::sync::Arc;
 use std::{collections::HashMap, hash::Hash};
 use util::{inline_const, CowArc, CowSlice, PooledStr};
 #[derive(TypeDeclaration)]
 #[make_type(make_instruction)]
 pub struct LuaState {
     pub strings: Native<HashSet<LuaStringNativeReference>>,
+    pub runtime: Native<Arc<dyn DynRuntimeTrait<FunctionPack<LuaInstructionSet>>>>,
     pub string_meta_functions: LuaMetaFunctionsReference,
     pub table_shape: LuaShapeReference,
     pub global: LuaTableReference,

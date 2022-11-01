@@ -2482,7 +2482,6 @@ impl<'ctx, 'm> LLVMFunctionBuilder<'ctx> {
         let jit_instrcution = JITInstruction {
             function_name: function.get_name().to_str().unwrap().into(),
             align: constant_layout.align(),
-            size: constant_layout.size(),
             is_returned: this.returned,
             operand_types,
             constant_size,

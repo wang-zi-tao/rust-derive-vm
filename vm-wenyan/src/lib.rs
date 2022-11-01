@@ -1,4 +1,4 @@
-use std::{io::{stdin, Write}, str::Chars};
+use std::{io::{stdin, Write}, str::Chars, sync::Arc};
 
 use chinese_number::{ChineseNumber, ChineseNumberCountMethod, ChineseVariant};
 use failure::Fallible;
@@ -9,7 +9,7 @@ use log::{debug, error};
 use runtime::code::{BlockBuilder, BuddyRegisterPool, FunctionBuilder, FunctionPack, RegisterPool};
 use runtime_extra as e;
 use syntax_derive::lalr1_analyser;
-use vm_core::{Direct, ExecutableResourceTrait, MemoryTrait, ObjectRef, Pointer, ResourceFactory, RuntimeTrait, TypeDeclaration, UnsizedArray};
+use vm_core::{Direct, DynRuntimeTrait, ExecutableResourceTrait, MemoryTrait, ObjectRef, Pointer, ResourceFactory, RuntimeTrait, TypeDeclaration, UnsizedArray};
 use vm_lua::{add_global_function, binary_operate_type, builder::{LuaBlockRef, LuaContext, LuaExprList, LuaExprListBuilder, LuaExprRef, LuaFunctionBuilder, LuaScoptRef, ScoptKind}, built_in::empty_return, instruction::{extend_to_buffer, ConstFalse}, ir::{Add, ConstTrue, Div, Equal, FAdd, FDiv, FEqual, FLarge, FLargeOrEqual, FLess, FLessOrEqual, FMul, FNotEqual, FRem, FSub, IAdd, IEqual, ILarge, ILargeOrEqual, ILess, ILessOrEqual, IMul, INotEqual, IRem, ISub, Large, LargeOrEqual, Less, LessOrEqual, LuaInstructionSet, Mul, NotEqual, Rem, Sub}, lua_lexical::LuaNumberLit, mem::{LuaFunctionRustType, LuaStateReference, LuaValue, LuaValueImpl}, new_state};
 type Register<T> = runtime::code::Register<T, BuddyRegisterPool>;
 
@@ -23,8 +23,9 @@ pub type 基本块<'l> = LuaBlockRef<'l>;
 pub type 作用域<'l> = LuaScoptRef<'l>;
 pub type 虚拟机 = LuaStateReference;
 pub type 程序 = Vec<FunctionPack<LuaInstructionSet>>;
+pub type 运行时 = Arc<dyn DynRuntimeTrait<FunctionPack<LuaInstructionSet>>>;
 #[lexical([],[
-"有","名之","以","其","所餘幾何","昔之","者","今","是矣","曰","恆","之","吾有","其物如是","物之","是謂","之物也","矣","批曰","也","注曰","是術曰","欲行是術","必先得","之術也","疏曰",  "數","言","爻","列","物","術",  "陽","陰",  "若","若非","乃止","中有陽乎","中無陰乎","乃歸空無","乃得","為是","遍","恆為是","凡","中之","云云",  "大於","不大於","小於","不小於","等於","不等於","加","减","乘","除","減","夫","銜","長","其餘","書之",
+"有","名之","以","其","所餘幾何","昔之","者","今","是矣","曰","恆","之","吾有","其物如是","物之","是謂","之物也","矣","批曰","也","注曰","是術曰","欲行是術","必先得","之術也","疏曰",  "數","言","爻","列","物","術",  "陽","陰",  "若","若非","乃止","中有陽乎","中無陰乎","乃歸空無","乃得","為是","遍","凡","中之","云云",  "大於","不大於","小於","不小於","等於","不等於","加","减","乘","除","減","夫","銜","長","其餘","書之",
 ])]
 #[derive(Debug, Clone, PartialEq)]
 pub enum 文言词法 {
@@ -407,14 +408,14 @@ pub extern "C" fn exec_wenyan(state: LuaStateReference, args: &[LuaValueImpl]) -
             buffer.extend(v.as_ref().ref_data().as_slice().iter().map(|d| d.0));
             String::from_utf8_lossy(&buffer).to_string()
         };
-        运行代码(state, code.as_ref(), &LuaInterpreter::new().unwrap()).unwrap();
+        运行代码(state, code.as_ref()).unwrap();
     } else {
         panic!("代码值不是字符串");
     }
     empty_return()
 }
-pub fn 创建虚拟机() -> Fallible<虚拟机> {
-    let vm = new_state()?;
+pub fn 创建虚拟机(runtime: 运行时) -> Fallible<虚拟机> {
+    let vm = new_state(runtime)?;
     Ok(vm)
 }
 pub fn 加入虚拟机(vm: 虚拟机) -> Fallible<虚拟机> {
@@ -428,29 +429,23 @@ pub fn 加入虚拟机(vm: 虚拟机) -> Fallible<虚拟机> {
 pub fn 打招呼() {
     println!("問天地好在。『zitao 文言 虚拟机 v{} 』", &env!("CARGO_PKG_VERSION"));
 }
-pub fn 加载代码<R>(vm: 虚拟机, code: &str, runtime: &R) -> Fallible<ObjectRef>
-where
-    R: RuntimeTrait<FunctionPack<LuaInstructionSet>>,
-    R::ResourceImpl: ExecutableResourceTrait<FunctionPack<LuaInstructionSet>>,
-{
+pub fn 加载代码(vm: 虚拟机, code: &str) -> Fallible<ObjectRef> {
     debug!("code: {:?}", code);
     let lexical = 文言词法::parse(code)?;
     debug!("lexical: {:?}", &lexical);
     let mut pack = 解析语法(vm.clone(), lexical)?;
     let root_function = pack.pop().unwrap();
-    let resource = runtime.create(root_function)?;
+    let vm_pointer = vm.as_pointer();
+    let runtime = unsafe { vm_pointer.as_ref().ref_runtime() };
+    let resource = runtime.create_dyn(root_function)?;
     for closure in pack {
-        runtime.create(closure)?;
+        runtime.create_dyn(closure)?;
     }
-    let resource = ExecutableResourceTrait::<FunctionPack<LuaInstructionSet>>::get_object(&*resource)?;
-    Ok(resource)
+    let object = resource.get_object()?;
+    Ok(object)
 }
-pub fn 运行代码<R>(vm: 虚拟机, code: &str, runtime: &R) -> Fallible<()>
-where
-    R: RuntimeTrait<FunctionPack<LuaInstructionSet>>,
-    R::ResourceImpl: ExecutableResourceTrait<FunctionPack<LuaInstructionSet>>,
-{
-    let resource = 加载代码(vm.clone(), code, runtime)?;
+pub fn 运行代码(vm: 虚拟机, code: &str) -> Fallible<()> {
+    let resource = 加载代码(vm.clone(), code)?;
     unsafe {
         let function: LuaFunctionRustType = std::mem::transmute(resource.lock().unwrap().get_export_ptr(0));
         let args = &[];
@@ -460,6 +455,8 @@ where
 }
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+
     use crate::{创建虚拟机, 运行代码};
     use failure::Fallible;
     use llvm_runtime::{Interpreter, JITCompiler};
@@ -471,9 +468,9 @@ mod tests {
     fn run_wenyan_script() -> Fallible<()> {
         env_logger::init();
         vm_lua::util::set_signal_handler();
-        let vm = 创建虚拟机()?;
+        let vm = 创建虚拟机(Arc::new(LuaInterpreter::new()?))?;
         let code = "為是十遍。吾有一言。曰「「問天地好在。」」。書之。云云。";
-        运行代码(vm.clone(), code, &LuaInterpreter::new()?)?;
+        运行代码(vm.clone(), code)?;
         Ok(())
     }
 }

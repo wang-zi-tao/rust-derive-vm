@@ -25,15 +25,17 @@ pub enum ResourceError {
     #[fail(display = "Other error: {:#?}", _0)]
     Other(#[cause] Error),
 }
-pub trait ResourceFactory<T> {
-    type ResourceImpl: Resource<T> + ?Sized;
-    fn define(&self) -> Fallible<Arc<Self::ResourceImpl>>;
-    fn create(&self, input: T) -> Fallible<Arc<Self::ResourceImpl>> {
+pub trait ResourceConverter<T, I> {
+    fn define(&self) -> Fallible<Arc<I>>;
+    fn create(&self, input: T) -> Fallible<Arc<I>> {
         let resource = self.define()?;
         self.upload(&*resource, input)?;
         Ok(resource)
     }
-    fn upload(&self, resource: &Self::ResourceImpl, input: T) -> Fallible<()>;
+    fn upload(&self, resource: &I, input: T) -> Fallible<()>;
+}
+pub trait ResourceFactory<T> {
+    type ResourceImpl: Resource<T> + ?Sized;
 }
 #[derive(Debug)]
 pub enum ResourceState {
@@ -178,9 +180,6 @@ pub struct ResourceReference<T> {
 pub struct ResourceWeakReference<T> {
     pub inner: Weak<dyn Resource<T>>,
     pub version: usize,
-}
-pub trait ResourceConverter<F, T> {
-    fn covert(&self, input: ResourceReference<F>) -> Fallible<Arc<dyn Resource<T>>>;
 }
 pub trait ResourcePipe<F, T> {
     fn receive(&self, input: ResourceReference<F>) -> Fallible<Vec<Arc<dyn Resource<T>>>>;

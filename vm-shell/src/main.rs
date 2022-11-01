@@ -9,8 +9,9 @@ use failure::{format_err, Fallible};
 use llvm_runtime::{Interpreter, JITCompiler};
 use log::{error, info, trace};
 use memory_mmmu::MemoryMMMU;
+use runtime::code::FunctionPack;
 use structopt::StructOpt;
-use vm_lua::LuaInstructionSet;
+use vm_lua::{LuaInstructionSet, LuaRuntime};
 
 use crate::cli::Opt;
 mod cli;
@@ -28,7 +29,8 @@ lazy_static! {
 fn main() -> Fallible<()> {
     env_logger::init();
     let opt = cli::Opt::from_args();
-    let lua_state = vm_lua::new_state()?;
+    let lua_runtime: LuaRuntime = if opt.jit { Arc::new(LuaJIT::new()?) } else { Arc::new(LuaInterpreter::new()?) };
+    let lua_state = vm_lua::new_state(lua_runtime)?;
     vm_wenyan::加入虚拟机(lua_state.clone())?;
     vm_lua::hello();
     vm_wenyan::打招呼();
@@ -37,20 +39,8 @@ fn main() -> Fallible<()> {
         let run = || {
             let bench = opt.bench;
             let resource = match &*opt.language {
-                "lua" => {
-                    if opt.jit {
-                        vm_lua::load_code(lua_state.clone(), &code, &*LUA_JIT)?
-                    } else {
-                        vm_lua::load_code(lua_state.clone(), &code, &*LUA_INTERPRETER)?
-                    }
-                }
-                "wenyan" => {
-                    if opt.jit {
-                        vm_wenyan::加载代码(lua_state.clone(), &code, &*LUA_JIT)?
-                    } else {
-                        vm_wenyan::加载代码(lua_state.clone(), &code, &*LUA_INTERPRETER)?
-                    }
-                }
+                "lua" => vm_lua::load_code(lua_state.clone(), &code)?,
+                "wenyan" => vm_wenyan::加载代码(lua_state.clone(), &code)?,
                 o => {
                     panic!("unsupport language {}", o);
                 }
@@ -71,7 +61,7 @@ fn main() -> Fallible<()> {
             .join()
             {
                 Ok(_) => {}
-                Err(e) => {
+                Err(_e) => {
                     error!("exec thread panic");
                     return Err(format_err!("exec thread panic"));
                 }

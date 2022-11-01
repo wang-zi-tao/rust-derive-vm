@@ -20,7 +20,7 @@ pub enum SegmentKind {
     Reference,
 }
 #[derive(Builder, Getters, CopyGetters)]
-pub struct FunctionPack<S> {
+pub struct FunctionPack<S: 'static> {
     #[builder(default)]
     pub _ph: PhantomData<S>,
     #[getset(get = "pub")]

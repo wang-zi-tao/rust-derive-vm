@@ -339,13 +339,8 @@ impl ScanPath {
     }
 
     pub fn do_build<'l>(
-        &self,
-        token: &mut GhostToken<'l>,
-        input: &Register<Pointer<i::Block>, RegisterPoolImpl>,
-        input_kind: BlockKind,
-        block: &mut BlockBuilder<'l, GCInstructionSet>,
-        exit: &mut BlockBuilder<'l, GCInstructionSet>,
-        context: &mut ScanContext<'l>,
+        &self, token: &mut GhostToken<'l>, input: &Register<Pointer<i::Block>, RegisterPoolImpl>, input_kind: BlockKind,
+        block: &mut BlockBuilder<'l, GCInstructionSet>, exit: &mut BlockBuilder<'l, GCInstructionSet>, context: &mut ScanContext<'l>,
     ) -> Fallible<()> {
         match self {
             ScanPath::Pointer { sub_path } => {
@@ -792,10 +787,10 @@ impl GCWorker {
     }
 }
 impl GCHeapScanner {
-    pub fn new<T>(plan: GCPlan, runtime: T) -> Fallible<Self>
+    pub fn new<T, I>(plan: GCPlan, runtime: T) -> Fallible<Self>
     where
-        T: RuntimeTrait<FunctionPack<GCInstructionSet>>,
-        T::ResourceImpl: ExecutableResourceTrait<FunctionPack<GCInstructionSet>>,
+        T: RuntimeTrait<FunctionPack<GCInstructionSet>, I>,
+        I: ExecutableResourceTrait<FunctionPack<GCInstructionSet>>,
     {
         let _clean_type = plan.clean_types();
         let mut scan_types = Vec::new();

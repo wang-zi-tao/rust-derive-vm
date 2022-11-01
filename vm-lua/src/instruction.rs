@@ -687,8 +687,8 @@ pub struct UniqueInstruction<
                 %i2_tag=lua_value::GetTag(%i2);
                 if UsizeLt(UsizeSub(UsizeOr(%i1_tag,%i2_tag),b::IntTruncate<12,7>(2)),b::IntTruncate<12,7>(2)) %double_float %other; },
             double_float:{
-                %i1_float_value=GetFloatValue(%i1);
-                %i2_float_value=GetFloatValue(%i2);
+                %i1_float_value=ToFloat(%i1);
+                %i2_float_value=ToFloat(%i2);
                 %i2=FloatInstruction(%i1_float_value,%i2_float_value); },
             other:{  %i2=CallState<%Init>(%i1,%i2); },
         },
@@ -773,8 +773,8 @@ pub struct FlipBinaryInstruction<
                 %i2_tag=lua_value::GetTag(%i2);
                 if UsizeLt(UsizeSub(UsizeOr(%i1_tag,%i2_tag),b::IntTruncate<12,7>(2)),b::IntTruncate<12,7>(2)) %double_float %other; },
             double_float:{
-                %i1_float_value=GetFloatValue(%i1);
-                %i2_float_value=GetFloatValue(%i2);
+                %i1_float_value=ToFloat(%i1);
+                %i2_float_value=ToFloat(%i2);
                 %i2=FloatInstruction(%i1_float_value,%i2_float_value); },
             other:{  %i2=CallState<%Init>(%i1,%i2); },
         },
@@ -878,8 +878,8 @@ pub struct NegationBinaryInstruction<
                 %i2_tag=lua_value::GetTag(%i2);
                 if UsizeLt(UsizeSub(UsizeOr(%i1_tag,%i2_tag),b::IntTruncate<12,7>(2)),b::IntTruncate<12,7>(2)) %double_float %other; },
             double_float:{
-                %i1_float_value=GetFloatValue(%i1);
-                %i2_float_value=GetFloatValue(%i2);
+                %i1_float_value=ToFloat(%i1);
+                %i2_float_value=ToFloat(%i2);
                 %i2=FloatInstruction(%i1_float_value,%i2_float_value); },
             other:{  %i2=CallState<%Init>(%i1,%i2); },
         },

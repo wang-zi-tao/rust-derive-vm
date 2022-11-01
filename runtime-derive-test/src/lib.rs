@@ -15,7 +15,6 @@ pub enum TestEnum {
     Variant2(e::F32),
     Variant3(e::U64),
     Variant4 { f: e::Bool },
-    Variant5 { f: e::Bool, f2: e::U64 },
 }
 type TestEnumRef = NonNull<TestEnumImpl>;
 #[derive(TypeDeclaration)]

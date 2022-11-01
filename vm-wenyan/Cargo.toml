@@ -24,7 +24,7 @@ memory-mmmu={path="../memory-impl/memory-mmmu"}
 llvm-runtime={path="../runtime-impl/llvm-runtime",optional=true}
 
 [features]
-runtime=["llvm-runtime"]
+runtime=["llvm-runtime","vm-lua/runtime"]
 
 [dev-dependencies]
 llvm-runtime={path="../runtime-impl/llvm-runtime"}
