@@ -12,25 +12,23 @@
 #![feature(const_convert)]
 pub use core;
 use log::debug;
-use log::error;
-use log::trace;
+
 pub use runtime;
 pub use util;
 use vm_core::DynRuntimeTrait;
-use vm_core::RuntimeTrait;
 
 use std::sync::Arc;
 use std::{cell::UnsafeCell, collections::{HashMap, HashSet}, ptr::NonNull};
 
 use failure::Fallible;
-use lazy_static::lazy_static;
+
 use lexical::Lexical;
 use lua_lexical::LuaLexical;
 use mem::*;
-use memory_mmmu::MemoryMMMU;
+
 use runtime::code::FunctionPack;
-use runtime_extra::{Bool, NullableOption, NullableOptionImpl, NullablePointer, NullablePointerImpl, Usize, U64, U8};
-use vm_core::{Direct, ExecutableResourceTrait, MemoryTrait, ObjectRef, Pointer, ResourceFactory, TypeDeclaration, UnsizedArray};
+use runtime_extra::{Bool, NullableOptionImpl, NullablePointerImpl, Usize, U64, U8};
+use vm_core::{ObjectRef, Pointer, UnsizedArray};
 
 pub use crate::ir::LuaInstructionSet;
 #[macro_use]
@@ -42,17 +40,14 @@ extern crate failure;
 extern crate runtime_derive;
 #[macro_use]
 extern crate derive_builder;
-#[macro_use]
 extern crate static_assertions;
 pub(crate) type TypeResourceImpl = memory_mmmu::RegistedType;
-pub mod lua_lexical;
-struct LuaModule {}
-struct LuaVM {}
 pub mod builder;
 pub mod built_in;
 pub mod error;
 pub mod instruction;
 pub mod ir;
+pub mod lua_lexical;
 pub mod mem;
 pub mod syntax;
 pub fn add_global_function(state: LuaStateReference, key: &str, function: &LuaFunctionRustType) -> Fallible<()> {
@@ -65,9 +60,9 @@ pub fn add_global_function(state: LuaStateReference, key: &str, function: &LuaFu
 pub fn new_string(state: Pointer<LuaState>, buffer: &[u8]) -> Fallible<LuaValueImpl> {
     unsafe {
         let mut state_ptr_clone = state.clone();
-        let mut strings = state_ptr_clone.as_ref_mut().ref_strings_mut();
+        let strings = state_ptr_clone.as_ref_mut().ref_strings_mut();
         let string = strings.get_or_insert_with(buffer, |buffer| {
-            let mut string = LuaStringReference(
+            let string = LuaStringReference(
                 LuaStringReference::get()
                     .unwrap()
                     .alloc_unsized(buffer.len())
@@ -94,15 +89,15 @@ pub fn add_global(state: LuaStateReference, key: LuaValueImpl, value: LuaValueIm
         let mut state_ptr = state.as_pointer();
         let state_ref = state_ptr.as_ref_mut();
         let mut global = state_ref.get_global();
-        let mut global_ref = global.as_ref_mut();
+        let global_ref = global.as_ref_mut();
         let mut shape = global_ref.get_shape();
-        let mut shape_ref = shape.as_ref_mut();
-        let mut key_map = shape_ref.ref_fields_mut().get_mut();
+        let shape_ref = shape.as_ref_mut();
+        let key_map = shape_ref.ref_fields_mut().get_mut();
         let slot = key_map.len();
         let mut slot_impl = LuaSlotMetadataImpl(Default::default());
         slot_impl.set_slot(Usize(slot));
         key_map.insert(key, slot_impl);
-        let mut fast_fields = global_ref.ref_fast_fields_mut().as_slice_mut();
+        let fast_fields = global_ref.ref_fast_fields_mut().as_slice_mut();
         if fast_fields.len() > slot {
             fast_fields[slot] = value;
         } else {
@@ -110,13 +105,12 @@ pub fn add_global(state: LuaStateReference, key: LuaValueImpl, value: LuaValueIm
             if let Some(slow_fields) = global_ref.get_slow_fields().read_some() {
                 let mut slow_fields = Pointer::<UnsizedArray<LuaValue>>::new(slow_fields.cast());
                 if slow_fields.as_ref_mut().len() <= index {
-                    let mut slow_fields_slice = slow_fields.as_ref_mut().as_slice();
+                    let slow_fields_slice = slow_fields.as_ref_mut().as_slice();
                     let len = 1 << (usize::BITS - index.leading_zeros());
                     let mut new_slow_fields = Pointer::<UnsizedArray<LuaValue>>::new(
                         LuaValueArrayReference::get()?.alloc_unsized(len)?.cast(),
                     );
-                    let (mut copy_slice, mut fill_slice) =
-                        new_slow_fields.as_ref_mut().as_slice_mut().split_at_mut(index);
+                    let (copy_slice, fill_slice) = new_slow_fields.as_ref_mut().as_slice_mut().split_at_mut(index);
                     copy_slice.clone_from_slice(slow_fields_slice);
                     fill_slice.fill(LuaValueImpl::encode_nil(()));
                     global_ref.set_slow_fields(NullablePointerImpl::encode_some(new_slow_fields.as_non_null().cast()));
@@ -126,8 +120,8 @@ pub fn add_global(state: LuaStateReference, key: LuaValueImpl, value: LuaValueIm
                 let len = 7;
                 let mut new_slow_fields =
                     Pointer::<UnsizedArray<LuaValue>>::new(LuaValueArrayReference::get()?.alloc_unsized(len)?.cast());
-                let mut new_slow_fields_ptr = new_slow_fields.as_non_null();
-                let mut new_slow_fields_slice = new_slow_fields.as_ref_mut().as_slice_mut();
+                let new_slow_fields_ptr = new_slow_fields.as_non_null();
+                let new_slow_fields_slice = new_slow_fields.as_ref_mut().as_slice_mut();
                 new_slow_fields_slice.fill(LuaValueImpl::encode_nil(()));
                 global_ref.set_slow_fields(NullablePointerImpl::encode_some(new_slow_fields_ptr.cast()));
                 new_slow_fields_slice[index] = value;
@@ -140,7 +134,7 @@ pub fn new_function(state: LuaStateReference, native_function: &LuaFunctionRustT
     unsafe {
         let function = LuaFunctionReference(LuaFunctionReference::get()?.alloc()?.cast());
         let mut function_ptr = function.as_pointer();
-        let mut function_ref = function_ptr.as_ref_mut();
+        let function_ref = function_ptr.as_ref_mut();
         function_ref.set_state(state.as_pointer());
         function_ref.set_function(NonNull::from(native_function).cast());
         let lua_value = LuaValueImpl::encode_function(function.as_pointer());
@@ -238,27 +232,34 @@ pub fn new_state(runtime: LuaRuntime) -> Fallible<LuaStateReference> {
     }
 }
 #[cfg(feature = "runtime")]
-pub type LuaInterpreter = Interpreter<LuaInstructionSet, MemoryMMMU>;
-#[cfg(feature = "runtime")]
-pub type LuaJIT = JITCompiler<LuaInstructionSet, MemoryMMMU>;
-#[cfg(feature = "runtime")]
-use llvm_runtime::Interpreter;
-#[cfg(feature = "runtime")]
-use llvm_runtime::JITCompiler;
-#[cfg(feature = "runtime")]
-lazy_static! {
-    pub static ref LUA_INTERPRETER: Arc<Interpreter<LuaInstructionSet, MemoryMMMU>> = Arc::new(match Interpreter::new() {
-        Ok(o) => o,
-        Err(e) => panic!("{}", e),
-    });
+mod runtime_feature {
+    use crate::LuaInstructionSet;
+    use lazy_static::lazy_static;
+    use memory_mmmu::MemoryMMMU;
+    pub use runtime;
+    use std::sync::Arc;
+    pub use util;
+
+    pub type LuaInterpreter = Interpreter<LuaInstructionSet, MemoryMMMU>;
+    pub type LuaJIT = JITCompiler<LuaInstructionSet, MemoryMMMU>;
+    use llvm_runtime::Interpreter;
+    use llvm_runtime::JITCompiler;
+    lazy_static! {
+        pub static ref LUA_INTERPRETER: Arc<Interpreter<LuaInstructionSet, MemoryMMMU>> =
+            Arc::new(match Interpreter::new() {
+                Ok(o) => o,
+                Err(e) => panic!("{}", e),
+            });
+    }
+    lazy_static! {
+        pub static ref LUA_JIT: Arc<JITCompiler<LuaInstructionSet, MemoryMMMU>> = Arc::new(match JITCompiler::new() {
+            Ok(o) => o,
+            Err(e) => panic!("{}", e),
+        });
+    }
 }
 #[cfg(feature = "runtime")]
-lazy_static! {
-    pub static ref LUA_JIT: Arc<JITCompiler<LuaInstructionSet, MemoryMMMU>> = Arc::new(match JITCompiler::new() {
-        Ok(o) => o,
-        Err(e) => panic!("{}", e),
-    });
-}
+pub use runtime_feature::*;
 pub fn pack_code(lua_state: LuaStateReference, code: &str) -> Fallible<Vec<FunctionPack<LuaInstructionSet>>> {
     debug!(target:"vm_lua::pack_code","code: {:?}", code);
     let lexical = LuaLexical::parse(code)?;

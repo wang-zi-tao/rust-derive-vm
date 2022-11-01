@@ -264,7 +264,7 @@ impl RawJITCompiler {
                 let instruction_function_decl = instruction_function_decl_cache
                     .entry(opcode)
                     .or_insert_with(|| module.add_function(&jit_instruction.function_name, instruction_function.get_type(), None));
-                let ret = builder.build_call(*instruction_function_decl, &*args, &format!("call_{}", ip));
+                let ret = builder.build_call(*instruction_function_decl, &args, &format!("call_{}", ip));
                 if jit_instruction.is_returned {
                     if let Some(ret) = ret.try_as_basic_value().left() {
                         if let Some(return_type) = function_type.return_type() {
@@ -293,7 +293,7 @@ impl RawJITCompiler {
                         error_builder.build_unreachable();
                         error_block
                     });
-                    builder.build_switch(jump_to_value, *else_block, &*switch_cases);
+                    builder.build_switch(jump_to_value, *else_block, &switch_cases);
                     break;
                 }
                 ip = constant_start + jit_instruction.constant_size + 2 * jit_instruction.operand_types.len();

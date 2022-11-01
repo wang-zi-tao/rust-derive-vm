@@ -3,6 +3,7 @@ use std::{
     hash::{BuildHasher, Hasher},
     num::Wrapping,
 };
+#[derive(Default)]
 pub struct BKDRHash {
     hash: u64,
 }
@@ -50,11 +51,7 @@ impl Hasher for BKDRHash {
         self.write_u64(i as u64);
     }
 }
-impl Default for BKDRHash {
-    fn default() -> Self {
-        BKDRHash { hash: 0 }
-    }
-}
+
 #[derive(Hash, Debug, Clone, Ord, PartialOrd, Eq, PartialEq)]
 pub struct BuildBKDRHash {}
 impl BuildHasher for BuildBKDRHash {

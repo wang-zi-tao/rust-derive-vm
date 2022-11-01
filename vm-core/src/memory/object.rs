@@ -45,7 +45,7 @@ pub struct Relocation {
 }
 impl Relocation {
     pub fn relocate(&self, buffer: &mut UnsafeBuffer, arg: *const u8) {
-        let offset = self.offset as usize;
+        let offset = self.offset;
         let arg = arg as isize;
         unsafe {
             let ptr = buffer.get_ptr::<u8>(offset).as_ptr() as isize;
@@ -286,9 +286,9 @@ impl AtomicObjectWeekRef {
         self.0.load().upgrade().map(|r| AtomicObjectRef(r.into()))
     }
 }
-impl Into<ObjectWeekRef> for AtomicObjectWeekRef {
-    fn into(self) -> ObjectWeekRef {
-        ObjectWeekRef(self.0.into_inner())
+impl From<AtomicObjectWeekRef> for ObjectWeekRef {
+    fn from(val: AtomicObjectWeekRef) -> Self {
+        ObjectWeekRef(val.0.into_inner())
     }
 }
 
@@ -318,9 +318,9 @@ impl Clone for AtomicObjectRef {
         Self(self.0.load().clone().into())
     }
 }
-impl Into<ObjectRef> for AtomicObjectRef {
-    fn into(self) -> ObjectRef {
-        ObjectRef(self.0.into_inner())
+impl From<AtomicObjectRef> for ObjectRef {
+    fn from(val: AtomicObjectRef) -> Self {
+        ObjectRef(val.0.into_inner())
     }
 }
 #[derive(Clone, Default)]

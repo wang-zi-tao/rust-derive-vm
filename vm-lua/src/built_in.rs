@@ -1,17 +1,16 @@
-use std::cell::UnsafeCell;
+
 use std::ptr::NonNull;
 
 use failure::Fallible;
 use vm_core::{Direct, Pointer, UnsizedArray};
 
 use crate::mem::{LuaFunctionRustType, LuaValue, LuaValueImpl};
-#[cfg(feature = "runtime")]
-use crate::LuaInterpreter;
+
 use crate::{instruction::extend_to_buffer, mem::LuaStateReference};
 static EMPTY_RETURN_INNER: UnsizedArray<LuaValue> = UnsizedArray::empty();
 pub fn empty_return() -> Pointer<UnsizedArray<LuaValue>> { Pointer::new(NonNull::from(&EMPTY_RETURN_INNER)) }
 
-pub extern "C" fn print(state: LuaStateReference, args: &[LuaValueImpl]) -> Pointer<UnsizedArray<LuaValue>> {
+pub extern "C" fn print(_state: LuaStateReference, args: &[LuaValueImpl]) -> Pointer<UnsizedArray<LuaValue>> {
     let mut buffer = Vec::new();
     for (arg_index, arg) in args.iter().enumerate() {
         if arg_index != 0 {
@@ -37,7 +36,7 @@ pub extern "C" fn exec_lua(state: LuaStateReference, args: &[LuaValueImpl]) -> P
     }
     empty_return()
 }
-pub const DEFAULT_BUILT_IN_FUNCTIONS: &'static [(&'static str, &'static LuaFunctionRustType)] = &[
+pub const DEFAULT_BUILT_IN_FUNCTIONS: &[(&str, &LuaFunctionRustType)] = &[
     ("print", &(print as LuaFunctionRustType)),
     ("exec_lua", &(exec_lua as LuaFunctionRustType)),
 ];

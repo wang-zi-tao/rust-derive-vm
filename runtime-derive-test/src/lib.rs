@@ -1,6 +1,5 @@
 #![feature(inline_const)]
 #![feature(generic_const_exprs)]
-#![feature(const_fn_trait_bound)]
 #![feature(inherent_associated_types)]
 use runtime::instructions::bootstrap as b;
 use runtime_extra as e;

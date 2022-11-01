@@ -358,7 +358,7 @@ impl<'ctx> Constant<'ctx> {
 pub(crate) fn convert_value<'ctx>(value: &Value, context: &'ctx Context) -> Result<(BasicValueEnum<'ctx>, Type)> {
     Ok(match value {
         Value::Str(s) => (
-            context.i8_type().const_array(&(&**s).bytes().map(|b| context.i8_type().const_int(b as u64, false)).collect::<Vec<_>>()).into(),
+            context.i8_type().const_array(&(**s).bytes().map(|b| context.i8_type().const_int(b as u64, false)).collect::<Vec<_>>()).into(),
             Type::Array(CowArc::new(Type::Int(IntKind::U8)), Some(s.bytes().len())),
         ),
         Value::ByteStr(_) => todo!(),
@@ -444,7 +444,7 @@ pub(crate) fn vm_type_to_llvm_type<'ctx>(ty: &Type, context: &'ctx Context) -> R
             for field_type in fields.iter() {
                 fields_type.push(vm_type_to_llvm_type(field_type, context)?);
             }
-            context.struct_type(&*fields_type, false).into()
+            context.struct_type(&fields_type, false).into()
         }
         Type::Tuple(Tuple::Compose(_fields)) => context.custom_width_int_type(layout.size().try_into()?).into(),
         Type::Function(f) => function_type_to_llvm_type(f, context)?.ptr_type(AddressSpace::Generic).into(),
@@ -489,9 +489,9 @@ where
         );
     };
     Ok(if let Some(return_type) = function.return_type() {
-        vm_type_to_llvm_type(return_type, context)?.fn_type(&*args, false)
+        vm_type_to_llvm_type(return_type, context)?.fn_type(&args, false)
     } else {
-        context.void_type().fn_type(&*args, false)
+        context.void_type().fn_type(&args, false)
     })
 }
 pub(crate) fn get_constant_type<'ctx>(metadata: &GenericsMetadata, _context: &'ctx Context) -> Result<Type> {
@@ -866,13 +866,13 @@ impl<'ctx, 'm> LLVMFunctionBuilder<'ctx> {
                     let _function_name = get!(constant, llvm_type, 2);
                     match value_type {
                         Type::Function(f) => {
-                            let function_llvm_type = function_type_to_llvm_type(&*f, context)?;
+                            let function_llvm_type = function_type_to_llvm_type(&f, context)?;
                             let function_ptr = builder.build_int_to_ptr(function_ptr_int, function_llvm_type.ptr_type(AddressSpace::Shared), "function_ptr");
                             let mut args = Vec::with_capacity(function_llvm_type.count_param_types() as usize);
                             for (index, arg_type) in function_llvm_type.get_param_types().into_iter().enumerate() {
                                 args.push(get!(args, arg_type, index).into());
                             }
-                            let call = builder.build_call(CallableValue::try_from(function_ptr).unwrap(), &*args, "NativeCall");
+                            let call = builder.build_call(CallableValue::try_from(function_ptr).unwrap(), &args, "NativeCall");
                             if let Some(_return_type) = function_llvm_type.get_return_type() {
                                 store_operand!(function_llvm_type.count_param_types() as usize, call.try_as_basic_value().left().unwrap());
                             }
@@ -886,12 +886,12 @@ impl<'ctx, 'm> LLVMFunctionBuilder<'ctx> {
                     let function_ptr = get!(args, llvm_type, 0).into_pointer_value();
                     match value_type {
                         Type::Function(f) => {
-                            let function_llvm_type = function_type_to_llvm_type(&*f, context)?;
+                            let function_llvm_type = function_type_to_llvm_type(&f, context)?;
                             let mut args = Vec::with_capacity(function_llvm_type.count_param_types() as usize);
                             for (index, arg_type) in function_llvm_type.get_param_types().into_iter().enumerate() {
                                 args.push(get!(args, arg_type, index + 1).into());
                             }
-                            let call = builder.build_call(CallableValue::try_from(function_ptr).unwrap(), &*args, "Call");
+                            let call = builder.build_call(CallableValue::try_from(function_ptr).unwrap(), &args, "Call");
                             if let Some(_return_type) = function_llvm_type.get_return_type() {
                                 store_operand!(function_llvm_type.count_param_types() as usize + 1, call.try_as_basic_value().left().unwrap());
                             }
@@ -905,14 +905,14 @@ impl<'ctx, 'm> LLVMFunctionBuilder<'ctx> {
                     let function_ptr = get!(args, llvm_type, 0).into_pointer_value();
                     match value_type {
                         Type::Function(f) => {
-                            let function_llvm_type = function_type_to_llvm_type(&*f, context)?;
+                            let function_llvm_type = function_type_to_llvm_type(&f, context)?;
                             let mut args = Vec::with_capacity(function_llvm_type.count_param_types() as usize);
                             for (index, arg_type) in function_llvm_type.get_param_types().into_iter().enumerate() {
                                 args.push(get!(args, arg_type, index + 1));
                             }
                             let then_block = self.branch(constants.get(0).ok_or(GenericIndexOutOfRange(0))?)?;
                             let catch_block = self.branch(constants.get(1).ok_or(GenericIndexOutOfRange(1))?)?;
-                            let call = builder.build_invoke(CallableValue::try_from(function_ptr).unwrap(), &*args, then_block, catch_block, "Invoke");
+                            let call = builder.build_invoke(CallableValue::try_from(function_ptr).unwrap(), &args, then_block, catch_block, "Invoke");
                             if let Some(_return_type) = function_llvm_type.get_return_type() {
                                 store_operand!(function_llvm_type.count_param_types() as usize + 1, call.try_as_basic_value().left().unwrap());
                             }
@@ -955,7 +955,7 @@ impl<'ctx, 'm> LLVMFunctionBuilder<'ctx> {
                             self.generate_instruction_core(&instruction, &[], &mut new_operands)?;
                             write_back_memory_instruciton_operands(*bootstrap, &self.global, &self.builder, r, operands, new_operands)?;
                         }
-                        _ => return Err(ExceptReferenceType(value_type.clone())),
+                        _ => return Err(ExceptReferenceType(value_type)),
                     }
                 }
                 // fn<type ty>(in:Enum)->(out:Usize)
@@ -1154,7 +1154,7 @@ impl<'ctx, 'm> LLVMFunctionBuilder<'ctx> {
                 LocateField => {
                     let (struct_type, struct_llvm_type) = get_type!();
                     let index = get_int_constant!(context.i32_type(), 1).get_zero_extended_constant().ok_or_else(WroneGenericKind)? as usize;
-                    let _value = match &struct_type {
+                    match &struct_type {
                         Type::Tuple(Tuple::Normal(f)) => {
                             let _field_type = f.get(index).ok_or_else(|| FieldIndexOutOfRange(struct_type.clone(), index))?;
                             let ptr = get!(args, struct_llvm_type.ptr_type(AddressSpace::Generic).into(), 0).into_pointer_value();
@@ -1172,7 +1172,7 @@ impl<'ctx, 'm> LLVMFunctionBuilder<'ctx> {
                 GetField => {
                     let (struct_type, struct_llvm_type) = get_type!();
                     let index = get_int_constant!(context.i32_type(), 1).get_zero_extended_constant().ok_or_else(WroneGenericKind)? as usize;
-                    let _value = match &struct_type {
+                    match &struct_type {
                         Type::Tuple(Tuple::Normal(f)) => {
                             let _field_type = f.get(index).ok_or_else(|| FieldIndexOutOfRange(struct_type.clone(), index))?;
                             let value = get!(args, struct_llvm_type, 0);
@@ -1198,7 +1198,7 @@ impl<'ctx, 'm> LLVMFunctionBuilder<'ctx> {
                 SetField => {
                     let (struct_type, struct_llvm_type) = get_type!();
                     let index = get_int_constant!(context.i32_type(), 1).get_zero_extended_constant().ok_or_else(WroneGenericKind)? as usize;
-                    let _value = match &struct_type {
+                    match &struct_type {
                         Type::Tuple(Tuple::Normal(f)) => {
                             let field_type = f.get(index).ok_or_else(|| FieldIndexOutOfRange(struct_type.clone(), index))?;
                             let field_llvm_type = vm_type_to_llvm_type(field_type, context)?;
@@ -1239,7 +1239,7 @@ impl<'ctx, 'm> LLVMFunctionBuilder<'ctx> {
                 LocateUnion => {
                     let (struct_type, struct_llvm_type) = get_type!();
                     let index = get_int_constant!(context.i32_type(), 1).get_zero_extended_constant().ok_or_else(WroneGenericKind)? as usize;
-                    let _value = match &struct_type {
+                    match &struct_type {
                         Type::Union(f) => {
                             let field_type = f.get(index).ok_or_else(|| FieldIndexOutOfRange(struct_type.clone(), index))?;
                             let field_llvm_type = vm_type_to_llvm_type(field_type, context)?;
@@ -1425,7 +1425,7 @@ impl<'ctx, 'm> LLVMFunctionBuilder<'ctx> {
                         for i in 0..len {
                             let value = get!(args, llvm_type, i as usize);
                             unsafe {
-                                builder.build_store(builder.build_gep(array_ptr, &[usize_type.const_int(i as u64, false)], "dest"), value);
+                                builder.build_store(builder.build_gep(array_ptr, &[usize_type.const_int(i, false)], "dest"), value);
                             }
                         }
                         let slice_type = context.struct_type(&[llvm_type.ptr_type(AddressSpace::Generic).into(), usize_type.into()], false);
@@ -1560,7 +1560,7 @@ impl<'ctx, 'm> LLVMFunctionBuilder<'ctx> {
                 complex_instruction.metadata.operands.iter().map(|operand_metadata| (operand_metadata.name.to_string())).zip(operands.iter().cloned()),
             );
             let generics_metadatas = match self.current_instruction {
-                InstructionType::Stateful(_) => complex_instruction.metadata.generics.split_last().ok_or_else(|| ConstantStateNotFound())?.1,
+                InstructionType::Stateful(_) => complex_instruction.metadata.generics.split_last().ok_or_else(ConstantStateNotFound)?.1,
                 _ => &*complex_instruction.metadata.generics,
             };
             let constants_map: HashMap<String, Constant<'ctx>> = HashMap::<String, Constant<'ctx>>::from_iter(
@@ -1647,7 +1647,7 @@ impl<'ctx, 'm> LLVMFunctionBuilder<'ctx> {
                                 let (value, ty) = convert_value(value, context)?;
                                 let operand = Operand::Value(value, ty);
                                 if let Some((operand_index, _operand_metadata)) =
-                                    complex_instruction.metadata.operands.iter().enumerate().find(|(_i, m)| m.output && &*m.name == &*name)
+                                    complex_instruction.metadata.operands.iter().enumerate().find(|(_i, m)| m.output && &*m.name == name)
                                 {
                                     operands_map.get_mut(&**name).ok_or(ArgumentIndexOutOfRange(operand_index))?.store(&builder, value)?;
                                     operands.get_mut(operand_index).ok_or(ArgumentIndexOutOfRange(operand_index))?.store(&builder, value)?;
@@ -1693,7 +1693,7 @@ impl<'ctx, 'm> LLVMFunctionBuilder<'ctx> {
                                 })()
                                 .map_err(|e| ErrorWhileGenerateInstructionCall(stat_index, Box::new(e), format!("{:?}", call), String::new()))?;
                                 let instruction_matedata =
-                                    get_instruction_metadata(instruction_type, &*new_constants, self.state_stack.last().map(|s| &s.instruction), false)
+                                    get_instruction_metadata(instruction_type, &new_constants, self.state_stack.last().map(|s| &s.instruction), false)
                                         .map_err(|e| ErrorWhileGenerateInstructionCall(stat_index, Box::new(e), format!("{:?}", call), String::new()))?;
                                 let mut new_operands = Vec::with_capacity(call.args.len() + call.rets.len());
                                 (|| {
@@ -1746,7 +1746,7 @@ impl<'ctx, 'm> LLVMFunctionBuilder<'ctx> {
                                                             }
                                                             let phi = phi_builder.build_phi(
                                                                 vm_type_to_llvm_type(&operand_metadata.value_type, context)?,
-                                                                &format!("{}__{}__{}", &instruction_name, &basic_block.id, &*arg_name),
+                                                                &format!("{}__{}__{}", &instruction_name, &basic_block.id, arg_name),
                                                             );
                                                             variables.insert(
                                                                 arg_name.to_string(),
@@ -1793,7 +1793,7 @@ impl<'ctx, 'm> LLVMFunctionBuilder<'ctx> {
                                     current_instruction: instruction_type.clone(),
                                 };
 
-                                instruction_builder.generate_instruction_core(instruction_type, &*new_constants, &mut *new_operands).map_err(|e| {
+                                instruction_builder.generate_instruction_core(instruction_type, &new_constants, &mut new_operands).map_err(|e| {
                                     ErrorWhileGenerateInstructionCall(stat_index, Box::new(e), format!("{:?}", call), format!("{:?}", instruction_matedata))
                                 })?;
                                 (|| {
@@ -2023,7 +2023,7 @@ impl<'ctx, 'm> LLVMFunctionBuilder<'ctx> {
             return self.generate_instruction_core(sub_instruction, &constant[1..], operand);
         } else if !self.termined {
             let table = Self::generate_instruction_set_interpreter(
-                &*compress_instruction.instructions,
+                &compress_instruction.instructions,
                 compress_instruction.instruction_count,
                 context,
                 self.global.clone(),
@@ -2062,7 +2062,7 @@ impl<'ctx, 'm> LLVMFunctionBuilder<'ctx> {
         }
         let builder = &self.builder;
         builder.position_at_end(switch_block);
-        builder.build_switch(state, post_block, &*cases);
+        builder.build_switch(state, post_block, &cases);
         builder.position_at_end(post_block);
         Ok(())
     }
@@ -2092,7 +2092,7 @@ impl<'ctx, 'm> LLVMFunctionBuilder<'ctx> {
         let deploy_table_entry_type = get_instruction_function_type(context).ptr_type(AddressSpace::Generic);
         let deploy_table_type = deploy_table_entry_type.array_type(instruction_count.try_into()?);
         let instruction_function_pointers = global.borrow().module.add_global(deploy_table_type, Some(AddressSpace::Generic), name);
-        let mut deploy_table_value: Vec<PointerValue<'ctx>> = Vec::with_capacity(instruction_count as usize);
+        let mut deploy_table_value: Vec<PointerValue<'ctx>> = Vec::with_capacity(instruction_count);
         for (index, (opcode, instruction)) in instructions.iter().enumerate() {
             match instruction {
                 InstructionType::Stateful(stateful_instruction) => {
@@ -2105,7 +2105,7 @@ impl<'ctx, 'm> LLVMFunctionBuilder<'ctx> {
                             instruction_count,
                             global.clone(),
                             instruction_function_pointers,
-                            Some((&*stateful_instruction, start)),
+                            Some((stateful_instruction, start)),
                             &format!("instruction_{}", instruction.get_name()),
                         )
                         .map_err(|e| ErrorWhileGenerateInstruction(start + index, Box::new(e)))?;
@@ -2114,7 +2114,7 @@ impl<'ctx, 'm> LLVMFunctionBuilder<'ctx> {
                 }
                 _ => {
                     let instruction_function = Self::generate_instruction_interpreter(
-                        &*instruction,
+                        instruction,
                         instruction_count,
                         global.clone(),
                         instruction_function_pointers,
@@ -2129,10 +2129,10 @@ impl<'ctx, 'm> LLVMFunctionBuilder<'ctx> {
                 }
             }
         }
-        if deploy_table_value.len() != instruction_count as usize {
-            return Err(WroneInstructionCount(deploy_table_value.len(), instruction_count as usize));
+        if deploy_table_value.len() != instruction_count {
+            return Err(WroneInstructionCount(deploy_table_value.len(), instruction_count));
         }
-        instruction_function_pointers.set_initializer(&deploy_table_entry_type.const_array(&*deploy_table_value));
+        instruction_function_pointers.set_initializer(&deploy_table_entry_type.const_array(&deploy_table_value));
         Ok(instruction_function_pointers)
     }
 
@@ -2156,7 +2156,7 @@ impl<'ctx, 'm> LLVMFunctionBuilder<'ctx> {
         let mut constant_offset_list = Vec::new();
         let mut constant_layout = Layout::new::<()>();
         let generics_metadatas = match &state_instruction_type {
-            Some(_) => metadata.generics.split_last().ok_or_else(|| ConstantStateNotFound())?.1,
+            Some(_) => metadata.generics.split_last().ok_or_else(ConstantStateNotFound)?.1,
             None => &*metadata.generics,
         };
         for constant_metadata in generics_metadatas {
@@ -2236,7 +2236,7 @@ impl<'ctx, 'm> LLVMFunctionBuilder<'ctx> {
             instruction_type.clone()
         };
         let mut this = LLVMFunctionBuilder {
-            context: &*context,
+            context,
             builder,
             ip: Some(ip),
             deploy_table: Some(deploy_table_ptr),
@@ -2342,7 +2342,7 @@ impl<'ctx, 'm> LLVMFunctionBuilder<'ctx> {
         let mut args = vec![usize_type.ptr_type(AddressSpace::Local).into()];
         let mut jit_constants = Vec::new();
         let generics_metadatas = match &state_instruction_type {
-            Some(_) => metadata.generics.split_last().ok_or_else(|| ConstantStateNotFound())?.1,
+            Some(_) => metadata.generics.split_last().ok_or_else(ConstantStateNotFound)?.1,
             None => &*metadata.generics,
         };
         for constant_metadata in generics_metadatas {
@@ -2396,7 +2396,7 @@ impl<'ctx, 'm> LLVMFunctionBuilder<'ctx> {
             *layout = new_layout;
             args.push(context.custom_width_int_type(8 * state_type_bytes as u32).ptr_type(AddressSpace::Local).into());
         }
-        let function_type = usize_type.fn_type(&*args, false);
+        let function_type = usize_type.fn_type(&args, false);
         let function = module.add_function(name, function_type, None);
         function.set_call_conventions(8); // fastcc
         let basic_block = context.append_basic_block(function, "entry");
@@ -2445,7 +2445,7 @@ impl<'ctx, 'm> LLVMFunctionBuilder<'ctx> {
         let exit_block_builder = context.create_builder();
         exit_block_builder.position_at_end(exit);
         let mut this = LLVMFunctionBuilder {
-            context: &*context,
+            context,
             builder,
             ip: None,
             deploy_table: None,
@@ -2494,7 +2494,7 @@ impl<'ctx, 'm> LLVMFunctionBuilder<'ctx> {
         instructions: &[(usize, InstructionType)], instruction_count: usize, global: Rc<RefCell<GlobalBuilder<'static>>>,
     ) -> Result<Vec<JITInstruction>> {
         let instruction_count = instruction_count;
-        let mut jit_instructions = Vec::with_capacity(instruction_count as usize);
+        let mut jit_instructions = Vec::with_capacity(instruction_count);
         let mut function_value_list = Vec::new();
         for (index, (opcode, instruction)) in instructions.iter().enumerate() {
             match instruction {
@@ -2506,7 +2506,7 @@ impl<'ctx, 'm> LLVMFunctionBuilder<'ctx> {
                         let (jit_instruction, function_value) = Self::generate_instruction_jit(
                             &state_instruction,
                             global.clone(),
-                            Some(&*stateful_instruction),
+                            Some(stateful_instruction),
                             &format!("instruction_{}", instruction.get_name()),
                         )
                         .map_err(|e| ErrorWhileGenerateInstruction(start + index, Box::new(e)))?;
@@ -2519,7 +2519,7 @@ impl<'ctx, 'm> LLVMFunctionBuilder<'ctx> {
                 }
                 _ => {
                     let (jit_instruction, function_value) =
-                        Self::generate_instruction_jit(&*instruction, global.clone(), None, &format!("instruction_{}", instruction.get_name()))
+                        Self::generate_instruction_jit(instruction, global.clone(), None, &format!("instruction_{}", instruction.get_name()))
                             .map_err(|e| ErrorWhileGenerateInstruction(index, Box::new(e)))?;
                     function_value_list.push(function_value);
                     if !function_value.verify(true) {
@@ -2529,8 +2529,8 @@ impl<'ctx, 'm> LLVMFunctionBuilder<'ctx> {
                 }
             }
         }
-        if jit_instructions.len() != instruction_count as usize {
-            return Err(WroneInstructionCount(jit_instructions.len(), instruction_count as usize));
+        if jit_instructions.len() != instruction_count {
+            return Err(WroneInstructionCount(jit_instructions.len(), instruction_count));
         }
         let module = &global.borrow().module;
         let pass_manager_builder = PassManagerBuilder::create();
@@ -2641,7 +2641,7 @@ pub(crate) fn get_boostrap_instruction_metadata<'ctx>(
             10 => U128,
             11 => Isize,
             12 => Usize,
-            o => return Err(IllegalIntKind(o as usize)),
+            o => return Err(IllegalIntKind(o)),
         };
         Ok(Type::Int(int_kind))
     };

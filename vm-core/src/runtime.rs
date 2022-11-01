@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
-use crate::{Module, ObjectRef, Resource, ResourceConverter, ResourceFactory};
-use failure::{format_err, Fallible};
+use crate::{Module, ObjectRef, Resource, ResourceConverter};
+use failure::{Fallible};
 
 pub trait ExecutableResourceTrait<T>: Resource<T> {
     fn get_object(&self) -> Fallible<ObjectRef>;

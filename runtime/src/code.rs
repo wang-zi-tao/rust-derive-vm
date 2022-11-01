@@ -371,7 +371,7 @@ impl RegisterPool for BuddyRegisterPool {
     fn raw_free(&mut self, size: usize, reg: u16) {
         let size = if size < 1 { size_of::<usize>() } else { 1 << (usize::BITS - (size - 1).leading_zeros()) };
         let level = size.div_euclid(size_of::<usize>()).trailing_zeros() as usize;
-        self.allocator[level as usize].push(reg);
+        self.allocator[level].push(reg);
     }
 }
 #[derive(Getters, CopyGetters)]

@@ -18,7 +18,7 @@ impl Deref for RuntimeContext {
     type Target = LLVMContext;
 
     fn deref(&self) -> &Self::Target {
-        unsafe { &self.context.as_ref() }
+        unsafe { self.context.as_ref() }
     }
 }
 impl RuntimeContext {

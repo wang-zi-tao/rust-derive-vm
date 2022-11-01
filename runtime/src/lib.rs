@@ -16,15 +16,11 @@ pub use util as _util;
 use smallvec::SmallVec;
 use std::{
     any::{Any, TypeId},
-    fmt::{Debug, Formatter},
-    marker::PhantomData,
-    sync::{Arc, RwLock},
+    sync::Arc,
 };
-use util::AsAny;
 
-use dashmap::{mapref::entry::Entry, DashMap};
-use failure::{format_err, Fallible};
-use vm_core::{Component, ExecutableResourceTrait, Module, Resource, ResourceFactory, ResourceState, RuntimeTrait, SymbolRef};
+use failure::Fallible;
+use vm_core::Module;
 pub trait RuntimeFilter: Module {
     fn get_input_type_id(&self) -> TypeId;
     fn consume<'l>(&'l self, esource_input: Arc<dyn Any + Send + Sync>) -> Fallible<SmallVec<[(Arc<dyn Any + Send + Sync>, &'l dyn RuntimeFilter); 1]>>;

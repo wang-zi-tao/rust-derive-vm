@@ -1,10 +1,8 @@
 use failure::Fallible;
 use llvm_runtime::{Interpreter, JITCompiler};
-use log::debug;
+
 use memory_mmmu::MemoryMMMU;
 use std::{
-    io::{stderr, Write},
-    path::PathBuf,
     sync::Arc,
 };
 

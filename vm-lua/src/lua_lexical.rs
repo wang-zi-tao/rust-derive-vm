@@ -103,11 +103,11 @@ fn parse_string(iter: &mut Chars) -> Option<String> {
                         loop {
                             let mut char_buffer = [0u8; 8];
                             buffer.extend_from_slice(iter.next()?.encode_utf8(&mut char_buffer).as_bytes());
-                            if let Ok(_r) = from_utf8(&*buffer) {
+                            if let Ok(_r) = from_utf8(&buffer) {
                                 break;
                             }
                         }
-                        lit.extend_from_slice(&*buffer);
+                        lit.extend_from_slice(&buffer);
                     }
                     '0'..='9' => {
                         let c2 = iter.next()?;
@@ -227,7 +227,7 @@ fn parse_number(iter: &mut Chars) -> Option<LuaNumberLit> {
             }
         }
         Some(number)
-    } else if iter.as_str().chars().next()?.is_digit(10) {
+    } else if iter.as_str().chars().next()?.is_ascii_digit() {
         let mut point_distance = 0;
         while let Some(c) = iter.as_str().chars().next() {
             if let Some(n) = c.to_digit(10) {

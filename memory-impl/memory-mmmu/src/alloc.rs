@@ -53,13 +53,13 @@ impl GlobalHeapFrameAllocator {
 
     #[inline(always)]
     pub fn try_alloc(&self, tire: usize) -> AllocResult<HeapFrameRef> {
-        let vm = VM::alloc(HEAP_SEGMENT_SIZE * tire as usize)?;
+        let vm = VM::alloc(HEAP_SEGMENT_SIZE * tire)?;
         let memory = VM::new(vm.as_non_null_slice_ptr()).create_shared_memory();
         let mut mems = Vec::new(); // 实现错误时自动unmap
         for m in 0..tire {
             unsafe {
                 let seg = VM::new(NonNull::slice_from_raw_parts(
-                    NonNull::new_unchecked(vm.as_ptr().offset((HEAP_SEGMENT_SIZE * m as usize).try_into().unwrap())),
+                    NonNull::new_unchecked(vm.as_ptr().offset((HEAP_SEGMENT_SIZE * m).try_into().unwrap())),
                     vm.len(),
                 ));
                 mems.push(memory.map(seg)?);
@@ -76,13 +76,13 @@ impl GlobalHeapFrameAllocator {
 
     #[inline(always)]
     pub fn try_alloc_large(&self, size: usize, segment_length: usize, tire: usize) -> AllocResult<NonNull<[u8]>> {
-        let vm = VM::alloc(segment_length * size * tire as usize)?;
+        let vm = VM::alloc(segment_length * size * tire)?;
         let memory = VM::new(vm.as_non_null_slice_ptr()).create_shared_memory();
         let mut mems = Vec::new(); // 实现错误时自动unmap
         for m in 0..tire {
             unsafe {
                 mems.push(memory.map(VM::new(NonNull::slice_from_raw_parts(
-                    NonNull::new_unchecked(vm.as_ptr().offset((segment_length * size * m as usize).try_into().unwrap())),
+                    NonNull::new_unchecked(vm.as_ptr().offset((segment_length * size * m).try_into().unwrap())),
                     segment_length,
                 )))?);
             }
@@ -304,9 +304,9 @@ pub fn try_alloc<'a>(ty: &RegistedType) -> AllocResult<NonNull<u8>> {
                     if full {
                         pools.mark_one_full();
                     }
-                    return Ok(oop);
+                    Ok(oop)
                 } else {
-                    return Err(NoSpaceLeft(Backtrace::new()));
+                    Err(NoSpaceLeft(Backtrace::new()))
                 }
             }),
             AllocationStrategy::Large => {

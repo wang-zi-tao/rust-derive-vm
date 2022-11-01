@@ -21,7 +21,7 @@ impl SyntaxLL1 {
             let nonterminal_name = nonterminal.ident.to_string();
             let mut select_reverse_map = HashMap::with_hasher(ahash::RandomState::with_seed(0));
             for production in productions {
-                if let Some(selects) = select_set.get(&*production) {
+                if let Some(selects) = select_set.get(production) {
                     nonterminal_parser_excepts.extend(selects.iter().filter_map(|select| select.as_ref().map(|select| select.ident.to_string())));
                     for select in selects {
                         if select_reverse_map.insert(select, production).is_some() {

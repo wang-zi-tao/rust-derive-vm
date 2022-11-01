@@ -121,7 +121,7 @@ pub(crate) fn scan_reference(ty: &Type, mut callback: impl FnMut(&RegistedType) 
                 work_stack.extend(t.iter());
             }
             Type::Array(layout, _) => {
-                work_stack.push(&*layout);
+                work_stack.push(layout);
             }
             Type::Reference(r) => {
                 r.try_map(|resource| callback(RegistedType::try_downcast(&**resource)?))?;
@@ -149,7 +149,7 @@ pub(crate) fn scan_assign(ty: &Type, mut callback: impl FnMut(&RegistedType) -> 
                 work_stack.extend(t.iter());
             }
             Type::Array(layout, _) => {
-                work_stack.push(&*layout);
+                work_stack.push(layout);
             }
             Type::Embed(r) => {
                 r.try_map(|resource| callback(RegistedType::try_downcast(&**resource)?))?;

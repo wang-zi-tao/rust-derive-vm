@@ -2,10 +2,8 @@ use failure::{format_err, Error, Fallible};
 use memfd::MemfdOptions;
 use mmap::{MapOption, MemoryMap};
 use std::{
-    ascii::AsciiExt,
     collections::BTreeSet,
     fs::File,
-    io::{stdout, Write},
     os::unix::prelude::{FromRawFd, IntoRawFd},
     ptr::NonNull,
     sync::{Arc, Mutex},
@@ -232,14 +230,14 @@ impl Buddy {
             return Some(first);
         }
         let high_level_position = self.alloc(height + 1)?;
-        (&mut self.levels[height as usize]).insert(high_level_position | (1 << height));
-        return Some(high_level_position);
+        self.levels[height as usize].insert(high_level_position | (1 << height));
+        Some(high_level_position)
     }
 
     pub fn free(&mut self, height: u32, position: usize) {
         if height < ALLOC_TREE_HEIGH {
             let level = &mut self.levels[height as usize];
-            if let Some(_) = level.take(&(position ^ (1 << height))) {
+            if level.take(&(position ^ (1 << height))).is_some() {
                 self.free(height + 1, position & !(1 << height))
             }
         }
@@ -258,9 +256,9 @@ mod tests {
     use failure::Fallible;
     #[test]
     pub fn alloc_vm() -> Fallible<()> {
-        let vm = VM::alloc(1 * 4096)?;
+        let vm = VM::alloc(4096)?;
         assert_ne!(vm.as_ptr(), ptr::null_mut());
-        assert_eq!(vm.len(), 1 * 4096);
+        assert_eq!(vm.len(), 4096);
         Ok(())
     }
     #[test]

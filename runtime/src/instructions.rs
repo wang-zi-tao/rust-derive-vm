@@ -222,7 +222,7 @@ impl std::fmt::Debug for InstructionType {
         match self {
             Self::Bootstrap(arg0) => f.write_fmt(format_args!("bootstrap::{:?}", arg0)),
             Self::Compression(_arg0) => f.debug_tuple("Compression").finish(),
-            Self::Complex(c) => f.debug_tuple(&*c.name).finish(),
+            Self::Complex(c) => f.debug_tuple(&c.name).finish(),
             Self::Stateful(_arg0) => f.debug_tuple("Stateful").finish(),
         }
     }

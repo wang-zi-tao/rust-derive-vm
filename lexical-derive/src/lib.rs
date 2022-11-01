@@ -429,14 +429,6 @@ fn do_lexical_derive(s: synstructure::Structure) -> Result<proc_macro2::TokenStr
         quote! {}
     };
     let word_match = if regex_variant_count != 0 {
-        let strings = word_variants
-            .iter()
-            .map(|v| match &v.0.match_kind {
-                MatchKind::Word(word) => word,
-                _ => unreachable!(),
-            })
-            .collect::<Vec<_>>();
-        let idents = word_variants.iter().map(|v| v.1.ast().ident.to_token_stream()).collect::<Vec<_>>();
         let mut cases = Vec::new();
         for word_variant in word_variants.iter() {
             let string = match &word_variant.0.match_kind {
@@ -577,7 +569,7 @@ pub fn lexical(attr: TokenStream, input: TokenStream) -> TokenStream {
         .iter()
         .map(|s| {
             let value = s.value();
-            let ident = format_ident!("{}", to_ident(&*value));
+            let ident = format_ident!("{}", to_ident(&value));
             quote! {
               #[lexical(word = #s)]
               #ident,
@@ -589,7 +581,7 @@ pub fn lexical(attr: TokenStream, input: TokenStream) -> TokenStream {
         .iter()
         .map(|s| {
             let value = s.value();
-            let ident = format_ident!("{}", to_ident(&*value));
+            let ident = format_ident!("{}", to_ident(&value));
             quote! {
               #[lexical(string = #s)]
               #ident,
@@ -610,7 +602,7 @@ pub fn lexical(attr: TokenStream, input: TokenStream) -> TokenStream {
 #[proc_macro]
 pub fn token(input: TokenStream) -> TokenStream {
     let token = input.to_string();
-    let ident = format_ident!("{}", to_ident(&*token));
+    let ident = format_ident!("{}", to_ident(&token));
     quote! {
       #ident
     }

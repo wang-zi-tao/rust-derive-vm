@@ -43,7 +43,7 @@ impl Deref for Inner {
     type Target = str;
 
     fn deref(&self) -> &Self::Target {
-        &*self.string
+        &self.string
     }
 }
 unsafe impl Sync for Inner {}
@@ -86,12 +86,12 @@ unsafe impl Send for PooledStr {}
 impl Eq for PooledStr {}
 impl PartialOrd for PooledStr {
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        (&**self).partial_cmp(&**other)
+        (**self).partial_cmp(&**other)
     }
 }
 impl Ord for PooledStr {
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        (&**self).cmp(&**other)
+        (**self).cmp(&**other)
     }
 }
 impl Debug for PooledStr {
@@ -104,11 +104,11 @@ impl Debug for PooledStr {
 }
 impl From<String> for PooledStr {
     fn from(s: String) -> PooledStr {
-        if let Some(ref ref_inner) = (&POOL).get(&*s) {
+        if let Some(ref ref_inner) = POOL.get(&*s) {
             return unsafe { PooledStr::new(ref_inner.key()) };
         }
         let inner = Inner::new(s);
-        match (&POOL).entry(Box::new(inner)) {
+        match POOL.entry(Box::new(inner)) {
             Entry::Occupied(o) => unsafe { PooledStr::new(o.key()) },
             Entry::Vacant(v) => {
                 let ptr = NonNull::from(&**v.key());
@@ -136,18 +136,18 @@ impl Drop for PooledStr {
         let inner = self.get_inner();
         let old_rc = inner.rc.fetch_sub(1, Ordering::Release);
         if old_rc == 1 {
-            (&POOL).remove_if(&*inner, |k, _| k.rc.load(Ordering::Acquire) == 0);
+            POOL.remove_if(inner, |k, _| k.rc.load(Ordering::Acquire) == 0);
         }
     }
 }
 impl Borrow<str> for Inner {
     fn borrow(&self) -> &str {
-        &*self.string
+        &self.string
     }
 }
 impl Borrow<str> for Box<Inner> {
     fn borrow(&self) -> &str {
-        &*self.string
+        &self.string
     }
 }
 impl From<&String> for PooledStr {
@@ -166,12 +166,12 @@ impl Deref for PooledStr {
     type Target = str;
 
     fn deref(&self) -> &Self::Target {
-        unsafe { &*self.inner.as_ref() }
+        unsafe { self.inner.as_ref() }
     }
 }
 impl Borrow<str> for PooledStr {
     fn borrow(&self) -> &str {
-        unsafe { &*self.inner.as_ref() }
+        unsafe { self.inner.as_ref() }
     }
 }
 impl Display for PooledStr {

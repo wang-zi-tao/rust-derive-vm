@@ -351,7 +351,7 @@ impl FunctionBinder {
             object_builder.borrow_mut(&mut token).set_pin(true);
             ObjectBuilderInner::set_import(&object_builder, &mut token, offset, ObjectBuilderImport::ObjectRef(code), RelocationKind::UsizePtrAbsolute, 0);
             object_builder.borrow_mut(&mut token).add_symbol(SymbolBuilder::default().offset(bind_offset).symbol_kind(vm_core::SymbolKind::Value).build()?);
-            Fallible::Ok(object_builder.take(&mut token).build_into(output)?)
+            object_builder.take(&mut token).build_into(output)
         })
     }
 

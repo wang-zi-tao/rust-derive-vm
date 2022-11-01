@@ -4,7 +4,7 @@ use llvm_runtime::JITCompiler;
 use log::debug;
 use memory_mmmu::MemoryMMMU;
 use scan_dir::ScanDir;
-use std::io::{stderr, Write};
+
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -41,7 +41,7 @@ fn run_scipts_in_tests_dir() -> Fallible<()> {
                     debug!(target : "test_scripts", "loading:{}, index:{}\n", &name, &index);
                     let code = std::fs::read_to_string(entry.path())?;
                     let state = vm_lua::new_state(runtime.clone())?;
-                    vm_lua::run_code(state, &*code)?;
+                    vm_lua::run_code(state, &code)?;
                     debug!(target : "test_scripts", "finish:{}\n", &name);
                 }
                 Fallible::Ok(())

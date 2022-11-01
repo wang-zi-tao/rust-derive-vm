@@ -11,7 +11,7 @@ use ghost_cell::{GhostCell, GhostToken};
 use log::{debug, trace};
 use runtime::code::{BlockBuilder, BuddyRegisterPool, FunctionBuilder, FunctionPack, RegisterPool};
 use runtime::instructions::bootstrap::MakeSlice;
-use vm_core::{FunctionTypeBuilder, ObjectBuilder, ObjectBuilderImport, ObjectBuilderInner, ObjectRef, RelocationKind, Slice, Symbol, SymbolBuilder, SymbolBuilderRef, SymbolRef, UnsizedArray};
+use vm_core::{FunctionTypeBuilder, ObjectBuilder, Slice, SymbolBuilder, SymbolRef, UnsizedArray};
 use vm_core::{Pointer, TypeDeclaration};
 
 use runtime_extra as e;
@@ -291,7 +291,8 @@ impl<'l> LuaContext<'l> {
         let new_block = new_function.current_block.clone();
         let new_builder = new_block.borrow(&token).builder().clone();
         let new_function = Rc::new(GhostCell::new(new_function));
-        let mut this = Self {
+        
+        Self {
             token,
             closure_stack: vec![new_function.clone()],
             current_function: new_function,
@@ -301,8 +302,7 @@ impl<'l> LuaContext<'l> {
             shape_map: Default::default(),
             packs: Default::default(),
             lua_state,
-        };
-        this
+        }
     }
     pub fn builder(&self) -> &BlockBuilder<'l, LuaInstructionSet> { &self.current_builder }
     pub fn token(&self) -> &GhostToken<'l> { &self.token }
@@ -464,7 +464,7 @@ impl<'l> LuaContext<'l> {
     }
     pub fn insert_break_point(&mut self, block: &LuaBlockRef<'l>) -> Fallible<()> {
         let builder = &block.borrow(self.token()).clone().builder().clone();
-        BreakPoint::emit(&builder, &mut self.token)?;
+        BreakPoint::emit(builder, &mut self.token)?;
         Ok(())
     }
 
@@ -621,7 +621,7 @@ impl<'l> LuaContext<'l> {
             }
             let array_reg = self.alloc_array::<LuaValue>(fields.len())?;
             let fields_reg = self.alloc_register()?;
-            MakeSlice::emit(&self.current_builder, &mut self.token, &*fields, &fields_reg, array_reg)?;
+            MakeSlice::emit(&self.current_builder, &mut self.token, &fields, &fields_reg, array_reg)?;
             self.free_array::<LuaValue>(fields.len(), array_reg);
             MakeTable::emit(
                 &self.current_builder,
@@ -1714,7 +1714,7 @@ impl<'l> LuaContext<'l> {
     // [if_prefix(p),t!(else),block(b),t!(end)]=>ctx.else_(p,a);
     pub fn else_(
         &mut self,
-        (true_block_end, false_block_begin): (LuaBlockRef<'l>, LuaBlockRef<'l>),
+        (true_block_end, _false_block_begin): (LuaBlockRef<'l>, LuaBlockRef<'l>),
         (false_block_end, else_block_begin): (LuaBlockRef<'l>, LuaBlockRef<'l>),
         (else_block_end, post_block_begin): (LuaBlockRef<'l>, LuaBlockRef<'l>),
     ) -> Fallible<()> {
@@ -1727,7 +1727,7 @@ impl<'l> LuaContext<'l> {
     // [if_prefix(p),t!(elseif),expr(e),block_split(c),t!(then),block(b),block_split(n)]=>ctx.elseif(p,e,c,b,n);
     pub fn elseif(
         &mut self,
-        (true_block_end, false_block_begin): (LuaBlockRef<'l>, LuaBlockRef<'l>),
+        (true_block_end, _false_block_begin): (LuaBlockRef<'l>, LuaBlockRef<'l>),
         predict: LuaExprRef<'l>,
         (predict_block_end, then_block_begin): (LuaBlockRef<'l>, LuaBlockRef<'l>),
         (then_block_end, new_true_block_begin): (LuaBlockRef<'l>, LuaBlockRef<'l>),
@@ -1742,7 +1742,7 @@ impl<'l> LuaContext<'l> {
     // [if_prefix(p),t!(end),block_split(b)]=>ctx.end_if(p,b);
     pub fn end_if(
         &mut self,
-        (true_block_end, false_block_begin): (LuaBlockRef<'l>, LuaBlockRef<'l>),
+        (true_block_end, _false_block_begin): (LuaBlockRef<'l>, LuaBlockRef<'l>),
         (false_block_end, post_block_begin): (LuaBlockRef<'l>, LuaBlockRef<'l>),
     ) -> Fallible<()> {
         trace!("end_if");
@@ -1776,7 +1776,7 @@ impl<'l> LuaContext<'l> {
         LuaExprRef<'l>,
     )> {
         let reg = self.alloc_register()?;
-        let expr = LuaExpr::new_value(reg.clone());
+        let expr = LuaExpr::new_value(reg);
         self.add_local(var, Default::default(), expr.clone())?;
         let pre_block_end = &init_block_end.borrow(self.token()).builder().clone();
         self.current_builder = pre_block_end.clone();
@@ -1817,7 +1817,7 @@ impl<'l> LuaContext<'l> {
             predicate_block_begin,
             start.value_reg(),
             end.value_reg(),
-            &state_reg,
+            state_reg,
         )?;
         ForLoopJump::emit(
             predicate_block_end,
@@ -1825,9 +1825,9 @@ impl<'l> LuaContext<'l> {
             loop_block_begin,
             post_block_begin,
             end.value_reg(),
-            &state_reg,
+            state_reg,
         )?;
-        ForLoopIncrease::emit(loop_block_end, &mut self.token, predicate_block_begin, &state_reg)?;
+        ForLoopIncrease::emit(loop_block_end, &mut self.token, predicate_block_begin, state_reg)?;
         Ok(())
     }
     pub fn for_step_head(
@@ -1847,7 +1847,7 @@ impl<'l> LuaContext<'l> {
         LuaExprRef<'l>,
     )> {
         let reg = self.alloc_register()?;
-        let expr = LuaExpr::new_value(reg.clone());
+        let expr = LuaExpr::new_value(reg);
         self.add_local(var, Default::default(), expr.clone())?;
         let init_block_end_builder = &init_block_end.borrow(self.token()).builder().clone();
         self.current_builder = init_block_end_builder.clone();
@@ -1902,7 +1902,7 @@ impl<'l> LuaContext<'l> {
             start.value_reg(),
             end.value_reg(),
             step.value_reg(),
-            &state_reg,
+            state_reg,
         )?;
         ForStepLoopJump::emit(
             predicate_block_end,
@@ -1911,13 +1911,13 @@ impl<'l> LuaContext<'l> {
             post_block_begin,
             end.value_reg(),
             step.value_reg(),
-            &state_reg,
+            state_reg,
         )?;
         ForStepLoopIncrease::emit(
             loop_block_end,
             &mut self.token,
             predicate_block_begin,
-            &state_reg,
+            state_reg,
             step.value_reg(),
         )?;
         Ok(())
@@ -1978,7 +1978,7 @@ impl<'l> LuaContext<'l> {
         let loop_block_begin = &loop_block_begin.borrow(self.token()).builder().clone();
         let post_block_begin = &post_block_begin.borrow(self.token()).builder().clone();
         let state_less_iter = self.expr_list_to_vec(exprs, 3)?;
-        let init_block_end = &init_block_end.borrow(self.token()).builder().clone();
+        let _init_block_end = &init_block_end.borrow(self.token()).builder().clone();
         let iter = self.to_value(state_less_iter[0].clone())?;
         let iterable = self.to_value(state_less_iter[1].clone())?;
         let state = self.to_writable_value(state_less_iter[2].clone())?;
@@ -2007,7 +2007,7 @@ impl<'l> LuaContext<'l> {
                     ret1,
                 )?;
             }
-            o => {
+            _o => {
                 let rets = self.alloc_register()?;
                 ForInLoopJump::emit(
                     predicate_block_end,
@@ -2025,7 +2025,7 @@ impl<'l> LuaContext<'l> {
                         &mut self.token,
                         Usize(var_index + 1),
                         &rets,
-                        &var.value_reg(),
+                        var.value_reg(),
                     )?;
                 }
             }
@@ -2246,7 +2246,7 @@ impl<'l> LuaContext<'l> {
                 (emit_float.unwrap())(&self.current_builder, &mut self.token, r1, r2, &r3)?;
                 LuaExpr::new_value(r3)
             }
-            (LuaRegister::Value(r1, _), LuaRegister::Value(r2, _)) => {
+            (LuaRegister::Value(r1, _), LuaRegister::Value(_r2, _)) => {
                 let expr2 = self.to_writable(expr2)?;
                 emit_value(&self.current_builder, &mut self.token, r1, expr2.value_reg())?;
                 expr2
@@ -2308,7 +2308,7 @@ impl<'l> LuaContext<'l> {
             _ => expr,
         })
     }
-    pub fn to_writable(&mut self, mut expr: LuaExprRef<'l>) -> Fallible<LuaExprRef<'l>> {
+    pub fn to_writable(&mut self, expr: LuaExprRef<'l>) -> Fallible<LuaExprRef<'l>> {
         match &expr.lifetime {
             ExprLifeTimeKind::Own => Ok(expr),
             ExprLifeTimeKind::COW => {

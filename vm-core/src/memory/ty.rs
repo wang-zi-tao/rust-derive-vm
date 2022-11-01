@@ -202,15 +202,15 @@ impl Debug for Type {
         match self {
             Self::Float(arg0) => arg0.fmt(f),
             Self::Int(arg0) => arg0.fmt(f),
-            Self::MetaData(arg0) => f.debug_tuple("MetaData").field(&*arg0).finish(),
-            Self::Const(arg0, arg1) => f.debug_tuple("Const").field(&*arg0).field(&*arg1).finish(),
+            Self::MetaData(arg0) => f.debug_tuple("MetaData").field(arg0).finish(),
+            Self::Const(arg0, arg1) => f.debug_tuple("Const").field(arg0).field(arg1).finish(),
             Self::Tuple(arg0) => arg0.fmt(f),
             Self::Enum(arg0) => arg0.fmt(f),
-            Self::Union(arg0) => f.debug_tuple("Union").field(&*arg0).finish(),
-            Self::Pointer(arg0) => f.write_str("*").and_then(|_| (&**arg0).fmt(f)),
+            Self::Union(arg0) => f.debug_tuple("Union").field(arg0).finish(),
+            Self::Pointer(arg0) => f.write_str("*").and_then(|_| (**arg0).fmt(f)),
             Self::Array(arg0, arg1) => {
                 f.write_str("[")?;
-                (&**arg0).fmt(f)?;
+                (**arg0).fmt(f)?;
                 if let Some(s) = arg1 {
                     f.write_str(";")?;
                     s.fmt(f)?;
@@ -294,12 +294,12 @@ impl Debug for Tuple {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str("(")?;
         match self {
-            Self::Normal(arg0) => (&**arg0).iter().try_for_each(|e| {
+            Self::Normal(arg0) => (**arg0).iter().try_for_each(|e| {
                 e.fmt(f)?;
                 f.write_str(",")?;
                 Ok(())
             })?,
-            Self::Compose(arg0) => (&**arg0).iter().try_for_each(|(t, l)| {
+            Self::Compose(arg0) => (**arg0).iter().try_for_each(|(t, l)| {
                 t.fmt(f)?;
                 f.write_str("@")?;
                 l.fmt(f)?;
@@ -322,7 +322,7 @@ impl Debug for Enum {
         f.write_str("enum ")?;
         self.tag_layout.fmt(f)?;
         f.write_str("{")?;
-        (&*self.variants).iter().try_for_each(|e| {
+        (*self.variants).iter().try_for_each(|e| {
             e.fmt(f)?;
             f.write_str(",")?;
             Ok(())
@@ -553,9 +553,9 @@ impl TypeLayout {
         Self { flexible_size, ..self }
     }
 }
-impl Into<Layout> for TypeLayout {
-    fn into(self) -> Layout {
-        Layout::from_size_align(self.size(), self.align()).unwrap()
+impl From<TypeLayout> for Layout {
+    fn from(val: TypeLayout) -> Self {
+        Layout::from_size_align(val.size(), val.align()).unwrap()
     }
 }
 impl Default for TypeLayout {

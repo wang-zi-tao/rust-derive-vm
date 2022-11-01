@@ -5,7 +5,7 @@ use serde::{
 use serde_json::{from_reader, to_writer};
 use std::{
     collections::hash_map::DefaultHasher,
-    fs::{create_dir, create_dir_all, File},
+    fs::{create_dir_all, File},
     hash::{Hash, Hasher},
     io::{BufReader, BufWriter},
     path::PathBuf,

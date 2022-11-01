@@ -213,7 +213,7 @@ pub trait FromNode<G: Graph> {
 }
 impl<T, G: Graph<From = T>> FromNode<G> for T {
     fn output(&self, guard: &GraphReadGuard<'_, G>) -> &HashSet<<G as Graph>::To> {
-        G::get_output_edge_set(self).unwrap().get(&*guard.0)
+        G::get_output_edge_set(self).unwrap().get(&guard.0)
     }
 }
 pub trait ToNode<G: Graph> {
@@ -221,6 +221,6 @@ pub trait ToNode<G: Graph> {
 }
 impl<T, G: Graph<To = T>> ToNode<G> for T {
     fn input(&self, guard: &GraphReadGuard<'_, G>) -> &HashSet<<G as Graph>::From> {
-        G::get_input_edge_set(self).unwrap().get(&*guard.0)
+        G::get_input_edge_set(self).unwrap().get(&guard.0)
     }
 }

@@ -1,13 +1,13 @@
 use failure::Fallible;
 use vm_core::TypeLayout;
 
-use crate::{metadata::Metadata, RegistedType};
+use crate::{RegistedType};
 
-use crate::object::Object;
+
 
 use std::{
     alloc::Layout,
-    mem::{size_of, MaybeUninit},
+    mem::{MaybeUninit},
     ptr::{self, null_mut, NonNull},
 };
 pub const HEAP_PAGE_SIZE: usize = 1 << 12;
@@ -135,6 +135,7 @@ impl Allocator {
         }
     }
 }
+#[derive(Default)]
 pub(crate) struct Mask(usize);
 
 impl Mask {
@@ -256,12 +257,7 @@ impl Mask {
         Ok(())
     }
 }
-impl Default for Mask {
-    #[inline(always)]
-    fn default() -> Mask {
-        Mask(0)
-    }
-}
+
 pub(crate) struct LinkedListAllocator {
     left_cell_count: usize,
     head: *mut FreeLinkedListNode,

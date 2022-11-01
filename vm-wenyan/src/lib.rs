@@ -1,4 +1,4 @@
-use std::{io::{stdin, Write}, str::Chars, sync::Arc};
+use std::{str::Chars, sync::Arc};
 
 use chinese_number::{ChineseNumber, ChineseNumberCountMethod, ChineseVariant};
 use failure::Fallible;
@@ -6,11 +6,11 @@ use ghost_cell::GhostToken;
 use lexical::Lexical;
 use lexical_derive::{lexical, Lexical};
 use log::{debug, error};
-use runtime::code::{BlockBuilder, BuddyRegisterPool, FunctionBuilder, FunctionPack, RegisterPool};
+use runtime::code::{BlockBuilder, BuddyRegisterPool, FunctionPack};
 use runtime_extra as e;
 use syntax_derive::lalr1_analyser;
-use vm_core::{Direct, DynRuntimeTrait, ExecutableResourceTrait, MemoryTrait, ObjectRef, Pointer, ResourceFactory, RuntimeTrait, TypeDeclaration, UnsizedArray};
-use vm_lua::{add_global_function, binary_operate_type, builder::{LuaBlockRef, LuaContext, LuaExprList, LuaExprListBuilder, LuaExprRef, LuaFunctionBuilder, LuaScoptRef, ScoptKind}, built_in::empty_return, instruction::{extend_to_buffer, ConstFalse}, ir::{Add, ConstTrue, Div, Equal, FAdd, FDiv, FEqual, FLarge, FLargeOrEqual, FLess, FLessOrEqual, FMul, FNotEqual, FRem, FSub, IAdd, IEqual, ILarge, ILargeOrEqual, ILess, ILessOrEqual, IMul, INotEqual, IRem, ISub, Large, LargeOrEqual, Less, LessOrEqual, LuaInstructionSet, Mul, NotEqual, Rem, Sub}, lua_lexical::LuaNumberLit, mem::{LuaFunctionRustType, LuaStateReference, LuaValue, LuaValueImpl}, new_state};
+use vm_core::{DynRuntimeTrait, ObjectRef, Pointer, UnsizedArray};
+use vm_lua::{add_global_function, binary_operate_type, builder::{LuaBlockRef, LuaContext, LuaExprList, LuaExprListBuilder, LuaExprRef, LuaScoptRef, ScoptKind}, built_in::empty_return, instruction::ConstFalse, ir::{Add, ConstTrue, Div, Equal, FAdd, FDiv, FEqual, FLarge, FLargeOrEqual, FLess, FLessOrEqual, FMul, FNotEqual, FRem, FSub, IAdd, IEqual, ILarge, ILargeOrEqual, ILess, ILessOrEqual, IMul, INotEqual, IRem, ISub, Large, LargeOrEqual, Less, LessOrEqual, LuaInstructionSet, Mul, NotEqual, Rem, Sub}, lua_lexical::LuaNumberLit, mem::{LuaFunctionRustType, LuaStateReference, LuaValue, LuaValueImpl}, new_state};
 type Register<T> = runtime::code::Register<T, BuddyRegisterPool>;
 
 pub type 表达式<'l> = LuaExprRef<'l>;
@@ -357,7 +357,7 @@ impl<'l> 中间码构建器<'l> {
     }
     pub fn 打包(self) -> Fallible<程序> { self.raw.pack() }
 }
-pub extern "C" fn print_wenyan(state: LuaStateReference, args: &[LuaValueImpl]) -> Pointer<UnsizedArray<LuaValue>> {
+pub extern "C" fn print_wenyan(_state: LuaStateReference, args: &[LuaValueImpl]) -> Pointer<UnsizedArray<LuaValue>> {
     let mut buffer = Vec::new();
     for (arg_index, arg) in args.iter().enumerate() {
         if arg_index != 0 {
@@ -365,7 +365,7 @@ pub extern "C" fn print_wenyan(state: LuaStateReference, args: &[LuaValueImpl]) 
         }
         unsafe {
             let buffer: &mut Vec<u8> = &mut buffer;
-            let mut i = arg.clone();
+            let i = arg.clone();
             if let Some(v) = i.read_integer() {
                 let v = (v.0) >> 4;
                 buffer.extend(v.to_lowercase_ten_thousand(ChineseVariant::Traditional).as_bytes());
@@ -459,11 +459,10 @@ mod tests {
 
     use crate::{创建虚拟机, 运行代码};
     use failure::Fallible;
-    use llvm_runtime::{Interpreter, JITCompiler};
+    use llvm_runtime::Interpreter;
     use memory_mmmu::MemoryMMMU;
     use vm_lua::LuaInstructionSet;
     pub type LuaInterpreter = Interpreter<LuaInstructionSet, MemoryMMMU>;
-    pub type LuaJIT = JITCompiler<LuaInstructionSet, MemoryMMMU>;
     #[test]
     fn run_wenyan_script() -> Fallible<()> {
         env_logger::init();

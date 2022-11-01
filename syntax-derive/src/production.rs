@@ -26,7 +26,7 @@ pub(crate) struct Terminal {
 }
 impl Debug for Terminal {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(&*self.ident.to_string())
+        f.write_str(&self.ident.to_string())
     }
 }
 
@@ -93,7 +93,7 @@ impl Hash for NonTerminal {
 }
 impl Debug for NonTerminal {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(&*self.ident.to_string())
+        f.write_str(&self.ident.to_string())
     }
 }
 #[derive(Clone)]

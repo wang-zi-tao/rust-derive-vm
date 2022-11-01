@@ -22,7 +22,7 @@ pub fn lr1_analyser(input: TokenStream) -> TokenStream {
     let input_clone = input.clone();
     let syntax_declaration = parse_macro_input!(input_clone as SyntaxDeclaration);
     util::cache_proc_macro(util::cache_meta!(), input.into(), |_| {
-        lr1::do_generate_parser(syntax_declaration, false).unwrap_or_else(|err| err.to_compile_error()).into()
+        lr1::do_generate_parser(syntax_declaration, false).unwrap_or_else(|err| err.to_compile_error())
     })
     .into()
 }
@@ -31,7 +31,7 @@ pub fn lalr1_analyser(input: TokenStream) -> TokenStream {
     let input_clone = input.clone();
     let syntax_declaration = parse_macro_input!(input_clone as SyntaxDeclaration);
     util::cache_proc_macro(util::cache_meta!(), input.into(), |_| {
-        lr1::do_generate_parser(syntax_declaration, true).unwrap_or_else(|err| err.to_compile_error()).into()
+        lr1::do_generate_parser(syntax_declaration, true).unwrap_or_else(|err| err.to_compile_error())
     })
     .into()
 }

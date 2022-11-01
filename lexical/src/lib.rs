@@ -9,7 +9,7 @@ pub trait Lexical: Sized {
     fn parse(source: &str) -> Fallible<Vec<Self>>;
 }
 pub fn to_ident(token: &str) -> String {
-    match &*token {
+    match token {
         "" => "Empty".to_string(),
         "=" => "Assign".to_string(),
         "," => "Comma".to_string(),

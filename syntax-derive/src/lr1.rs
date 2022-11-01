@@ -511,7 +511,7 @@ impl<'t> StateMachineBuilder<'t> {
             };
             Ok(node)
         } else {
-            let lr_items = items.iter().map(|(lr0item, _outlooks)| (lr0item.clone(), Default::default())).collect();
+            let lr_items = items.keys().map(|lr0item| (lr0item.clone(), Default::default())).collect();
             let (node, items) = match self.items_map.entry(lr_items) {
                 Entry::Vacant(v) => {
                     let new_node = Node {
@@ -562,7 +562,7 @@ impl<'t> StateMachineBuilder<'t> {
                 }
                 let mut new_actions = Vec::new();
                 for (item, outlooks) in &node_cell.borrow().items {
-                    if item.next_symbol() == None {
+                    if item.next_symbol().is_none() {
                         for outlook in outlooks {
                             if item.position == item.production.right_part.len() && &item.production.left_part == self.start {
                                 new_actions.push((None, Action::Accept(item.production.clone())));
@@ -686,7 +686,7 @@ impl<'t> StateMachineBuilder<'t> {
             {
                 let mut new_actions = Vec::new();
                 for (item, outlooks) in &node_cell.borrow().items {
-                    if item.next_symbol() == None {
+                    if item.next_symbol().is_none() {
                         for outlook in outlooks {
                             if item.position == item.production.right_part.len() && &item.production.left_part == self.start {
                                 new_actions.push((None, Action::Accept(item.production.clone())));

@@ -1,15 +1,15 @@
 use std::{
     io::{stdin, Write},
     sync::Arc,
-    time::{SystemTime, UNIX_EPOCH},
+    time::SystemTime,
 };
 extern crate vm_wenyan;
 
 use failure::{format_err, Fallible};
 use llvm_runtime::{Interpreter, JITCompiler};
-use log::{error, info, trace};
+use log::{error, trace};
 use memory_mmmu::MemoryMMMU;
-use runtime::code::FunctionPack;
+
 use structopt::StructOpt;
 use vm_lua::{LuaInstructionSet, LuaRuntime};
 
@@ -23,7 +23,7 @@ lazy_static! {
     pub static ref LUA_INTERPRETER: Interpreter<LuaInstructionSet, MemoryMMMU> = Interpreter::new().unwrap();
 }
 lazy_static! {
-    pub static ref LUA_JIT: JITCompiler<LuaInstructionSet, MemoryMMMU> = { JITCompiler::new().unwrap() };
+    pub static ref LUA_JIT: JITCompiler<LuaInstructionSet, MemoryMMMU> = JITCompiler::new().unwrap();
 }
 
 fn main() -> Fallible<()> {
@@ -39,7 +39,7 @@ fn main() -> Fallible<()> {
         let run = || {
             let bench = opt.bench;
             let resource = match &*opt.language {
-                "lua" => vm_lua::load_code(lua_state.clone(), &code)?,
+                "lua" => vm_lua::load_code(lua_state.clone(), &code).unwrap(),
                 "wenyan" => vm_wenyan::加载代码(lua_state.clone(), &code)?,
                 o => {
                     panic!("unsupport language {}", o);
@@ -79,13 +79,13 @@ fn main() -> Fallible<()> {
     };
     for code in opt.command.iter().cloned() {
         let r = run(lua_state.clone(), code, &opt);
-        if let Err(_) = &r {
+        if r.is_err() {
             return r;
         }
     }
     for file in opt.file.iter() {
         let code = std::fs::read(file)?;
-        run(lua_state.clone(), String::from_utf8_lossy(&code).to_string(), &opt);
+        let _ = run(lua_state.clone(), String::from_utf8_lossy(&code).to_string(), &opt);
     }
     if opt.file.is_empty() && opt.command.is_empty() {
         loop {
@@ -96,7 +96,7 @@ fn main() -> Fallible<()> {
             if len == 0 {
                 break;
             }
-            run(lua_state.clone(), code, &opt);
+            let _ = run(lua_state.clone(), code, &opt);
         }
     }
     Ok(())

@@ -533,7 +533,7 @@ impl InstructionDeclaration {
             InstructionKindDeclaration::Complex { metadata, function_boby } => {
                 let emit = metadata.generate_emit()?;
                 let instruction_metadata = metadata.generate_matedata(false, config)?;
-                let instruction_boby = function_boby.generate(&*metadata.generics, config)?;
+                let instruction_boby = function_boby.generate(&metadata.generics, config)?;
                 let complex_instruction_name = name.into_token_stream().to_string();
                 let instruction_type = quote! {
                       runtime::instructions::InstructionType::Complex(
@@ -555,7 +555,7 @@ impl InstructionDeclaration {
                 let instruction_metadata = metadata.generate_matedata(true, config)?;
                 let boost = state_machine.state_list.first().ok_or_else(|| Error::new(state_machine.wrap.span, "no state found"))?.name.to_string();
                 let stateful_instruction_name = name.into_token_stream().to_string();
-                let state_body = state_machine.generate(&*metadata.generics, config, &instruction_metadata, &*stateful_instruction_name)?;
+                let state_body = state_machine.generate(&metadata.generics, config, &instruction_metadata, &stateful_instruction_name)?;
                 let instruction_type = quote! {
                       runtime::instructions::InstructionType::Stateful(
                         runtime::_util::CowArc::Ref(

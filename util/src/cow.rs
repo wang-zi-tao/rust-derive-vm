@@ -81,8 +81,8 @@ impl<'l, T: ?Sized> Deref for CowArc<'l, T> {
 
     fn deref(&self) -> &Self::Target {
         match self {
-            CowArc::Owned(o) => &**o,
-            CowArc::Ref(r) => *r,
+            CowArc::Owned(o) => o,
+            CowArc::Ref(r) => r,
         }
     }
 }
@@ -125,7 +125,7 @@ where
     T: PartialOrd,
 {
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        (&**self).partial_cmp(&**other)
+        (**self).partial_cmp(&**other)
     }
 }
 
@@ -134,7 +134,7 @@ where
     T: Ord,
 {
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        (&**self).cmp(&**other)
+        (**self).cmp(&**other)
     }
 }
 
@@ -185,7 +185,7 @@ impl<'r, 'l, T> IntoIterator for &'r CowSlice<'l, T> {
     type Item = &'r T;
 
     fn into_iter(self) -> Self::IntoIter {
-        (&**self).iter()
+        (**self).iter()
     }
 }
 impl<'l, T> Deref for CowSlice<'l, T> {
@@ -193,8 +193,8 @@ impl<'l, T> Deref for CowSlice<'l, T> {
 
     fn deref(&self) -> &Self::Target {
         match self {
-            CowSlice::Owned(o) => &**o,
-            CowSlice::Ref(r) => *r,
+            CowSlice::Owned(o) => o,
+            CowSlice::Ref(r) => r,
         }
     }
 }

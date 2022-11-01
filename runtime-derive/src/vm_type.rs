@@ -392,7 +392,7 @@ fn derive_enum(s: &DataEnum, structure: &Structure) -> Result<TokenStream2> {
         }};
     } else if let Some(tag_mask) = enum_attr.tag_mask {
         let mask = tag_mask.to_usize();
-        let tag_offset_i8 = tag_offset as i8;
+        let tag_offset_i8 = tag_offset;
         tag_layout = quote! {vm_core::EnumTagLayout::SmallField(
         vm_core::SmallElementLayout{mask:#mask,bit_offset:#tag_offset_i8}
         )};

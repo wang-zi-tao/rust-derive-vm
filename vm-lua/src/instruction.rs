@@ -407,7 +407,7 @@ make_instruction! { BuildTable->fn<const shape:LuaShapeReference,const slots:Usi
     lua_table::WriteShape(%new_table_ptr,%shape);
     %o=lua_value::EncodeTable(%new_table);
 }} }
-pub unsafe fn extend_to_buffer(buffer: &mut Vec<u8>, mut i: Direct<LuaValue>) -> bool {
+pub unsafe fn extend_to_buffer(buffer: &mut Vec<u8>, i: Direct<LuaValue>) -> bool {
     if let Some(v) = i.read_integer() {
         let v = (v.0) >> 4;
         buffer.extend(v.to_string().as_bytes());
@@ -450,7 +450,7 @@ pub unsafe extern "C" fn __vm_lua_lib_raw_concat(
     if !extend_to_buffer(&mut buffer, i1) || !extend_to_buffer(&mut buffer, i2) {
         return Direct(LuaValueImpl::encode_nil(()));
     }
-    Direct(crate::new_string(state.0, &*buffer).unwrap())
+    Direct(crate::new_string(state.0, &buffer).unwrap())
 }
 type GetMetaValueConcat = GetMetaValue<lua_meta_functions::ReadConcat>;
 make_instruction! {

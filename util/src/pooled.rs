@@ -80,12 +80,12 @@ unsafe impl<T: Hash + Eq + Sync + Send> Send for Pooled<T> {}
 impl<T: Hash + Eq + Sync + Send> Eq for Pooled<T> {}
 impl<T: Hash + Eq + Sync + Send + PartialOrd> PartialOrd for Pooled<T> {
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        T::partial_cmp(&*self, &*other)
+        T::partial_cmp(self, other)
     }
 }
 impl<T: Hash + Eq + Sync + Send + Ord> Ord for Pooled<T> {
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        T::cmp(&*self, &*other)
+        T::cmp(self, other)
     }
 }
 impl<T: Hash + Eq + Sync + Send + Debug> Debug for Pooled<T> {
@@ -98,7 +98,7 @@ impl<T: Hash + Eq + Sync + Send> Drop for Pooled<T> {
         let inner = self.get_inner();
         let old_rc = inner.rc.fetch_sub(1, Ordering::Relaxed);
         if old_rc == 1 {
-            inner.pool.upgrade().map(|pool| (*pool).pool.remove_if(&*inner, |k, _| k.rc.load(Ordering::Acquire) == 0));
+            inner.pool.upgrade().map(|pool| pool.pool.remove_if(inner, |k, _| k.rc.load(Ordering::Acquire) == 0));
         }
     }
 }
@@ -119,17 +119,17 @@ impl<T: Hash + Eq + Sync + Send> Deref for Pooled<T> {
     type Target = T;
 
     fn deref(&self) -> &Self::Target {
-        unsafe { &*self.inner.as_ref() }
+        unsafe { self.inner.as_ref() }
     }
 }
 impl<T: Hash + Eq + Sync + Send> Borrow<T> for Pooled<T> {
     fn borrow(&self) -> &T {
-        unsafe { &*self.inner.as_ref() }
+        unsafe { self.inner.as_ref() }
     }
 }
 impl<T: Hash + Eq + Sync + Send + Display> Display for Pooled<T> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        (&**self).fmt(f)
+        (**self).fmt(f)
     }
 }
 pub struct RawPool<T: Hash + Eq + Sync + Send> {

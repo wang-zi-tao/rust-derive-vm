@@ -96,7 +96,7 @@ impl Parse for SymbolDeclaration {
             let _: Token!(!) = input.parse()?;
             let content;
             let _ = parenthesized!(content in input);
-            let r = format_ident!("{}", to_ident(&*content.to_string()));
+            let r = format_ident!("{}", to_ident(&content.to_string()));
             while !content.is_empty() {
                 let _: TokenTree = content.parse()?;
             }

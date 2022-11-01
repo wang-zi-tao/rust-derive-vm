@@ -2,18 +2,18 @@ use crate::{ir::LuaInstructionSet, TypeResourceImpl};
 
 use lexical::_lazy_static::lazy_static;
 use runtime::code::FunctionPack;
-use vm_core::{make_reference, Aligned, Direct, DynRuntimeTrait, FunctionType, MoveIntoObject, Native, ObjectBuilder, ObjectBuilderImport, ObjectBuilderInner, Pointer, Reference, Resource, SymbolBuilderRef, SymbolRef, Type, TypeDeclaration, TypeLayout, UnsizedArray};
+use vm_core::{make_reference, Aligned, Direct, DynRuntimeTrait, FunctionType, MoveIntoObject, Native, ObjectBuilder, ObjectBuilderImport, ObjectBuilderInner, Pointer, Reference, Resource, SymbolRef, Type, TypeDeclaration, TypeLayout, UnsizedArray};
 
 use runtime_extra::ty::*;
 use std::cell::UnsafeCell;
 use std::collections::HashSet;
 use std::hash::Hasher;
-use std::marker::PhantomData;
-use std::ops::Deref;
+
+
 use std::ptr::NonNull;
 use std::sync::Arc;
 use std::{collections::HashMap, hash::Hash};
-use util::{inline_const, CowArc, CowSlice, PooledStr};
+use util::{inline_const, CowArc, CowSlice};
 #[derive(TypeDeclaration)]
 #[make_type(make_instruction)]
 pub struct LuaState {
