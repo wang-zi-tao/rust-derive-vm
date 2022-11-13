@@ -23,7 +23,7 @@ use std::{any::Any, cell::RefCell, fmt::Debug, marker::PhantomData, rc::Rc, sync
 
 use crate::{
     context::RuntimeContext,
-    genarator::{GlobalBuilder, LLVMFunctionBuilder},
+    generator::{GlobalBuilder, LLVMFunctionBuilder},
 };
 use failure::format_err;
 
@@ -57,12 +57,11 @@ impl RawInterpreter {
         let GlobalBuilder { symbol_maps, module, .. } = Rc::try_unwrap(global_builder).unwrap().into_inner();
         FunctionBinder::generate(context_ref, &module, instruction_functions.as_pointer_value(), 12)?;
         module.verify().map_err(|e| format_err!("llvm verify error: {}", e.to_string()))?;
-        let execution_engine = module.create_jit_execution_engine(inkwell::OptimizationLevel::Aggressive).map_err(|e| format_err!("llvm error: {}", e))?;
+        let execution_engine = context.create_execution_engine(&module)?;
         for (symbol, ptr) in symbol_maps {
-            execution_engine.add_global_mapping(&symbol, ptr as usize);
+            execution_engine.add_global_mapping(&module.get_global(&symbol).unwrap(), ptr as usize);
         }
         let binder = FunctionBinder::from_jit(&execution_engine, 12)?;
-        context.set_execution_engine(Some(execution_engine));
         Ok(Self { binder, _context: context })
     }
 }

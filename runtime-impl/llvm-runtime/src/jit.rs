@@ -21,6 +21,7 @@ use inkwell::{
     context::Context,
     execution_engine::{ExecutionEngine, FunctionLookupError},
     module::Module,
+    passes::{PassManager, PassManagerBuilder},
     support::LLVMString,
     types::BasicType,
     values::{FunctionValue, PointerValue},
@@ -91,7 +92,7 @@ impl From<LLVMString> for JITCompileError {
 }
 type Result<T> = std::result::Result<T, JITCompileError>;
 
-use crate::genarator::{bitcast_from_int, function_type_to_llvm_type, vm_type_to_llvm_type, GlobalBuilder, InstructionError, LLVMFunctionBuilder};
+use crate::generator::{bitcast_from_int, function_type_to_llvm_type, vm_type_to_llvm_type, GlobalBuilder, InstructionError, LLVMFunctionBuilder};
 #[derive(Debug)]
 pub enum JITConstantKind {
     Const(Type, usize),
@@ -110,19 +111,23 @@ pub struct JITInstruction {
 }
 pub struct RawJITCompiler {
     instructions: Vec<JITInstruction>,
-    _context: RuntimeContext,
+    context: RuntimeContext,
 }
 unsafe impl Send for RawJITCompiler {}
 
 impl RawJITCompiler {
     pub fn execution_engine(&self) -> Fallible<&ExecutionEngine<'static>> {
-        self._context.execution_engine().ok_or_else(|| WroneState().into())
+        self.context.execution_engine().ok_or_else(|| WroneState().into())
+    }
+
+    pub fn root_module(&self) -> Fallible<&Module<'static>> {
+        self.context.module().ok_or_else(|| WroneState().into())
     }
 
     pub fn new((instructions, instruction_count): (&[(usize, InstructionType)], usize), memory_instruction_set: &MemoryInstructionSet) -> Result<Self> {
         let mut context = RuntimeContext::default();
         let context_ref: &'static Context = unsafe { context.context() };
-        let module = context_ref.create_module("jit");
+        let module = context_ref.create_module("jit_instruction_set_");
         let global_builder = Rc::new(RefCell::new(GlobalBuilder {
             symbol_maps: Default::default(),
             module: Rc::new(module),
@@ -133,15 +138,18 @@ impl RawJITCompiler {
         let GlobalBuilder { symbol_maps, module, memory_instruction_set: _, context: _ } = Rc::try_unwrap(global_builder).unwrap().into_inner();
         let execution_engine = module.create_jit_execution_engine(inkwell::OptimizationLevel::Aggressive).map_err(|e| format_err!("llvm error: {}", e))?;
         for (symbol, ptr) in symbol_maps {
-            execution_engine.add_global_mapping(&symbol, ptr as usize);
+            if let Some(global) = module.get_global(&symbol) {
+                execution_engine.add_global_mapping(&global, ptr as usize);
+            }
         }
         context.set_execution_engine(Some(execution_engine));
-        let this = Self { instructions: jit_instructions, _context: context };
+        context.set_module(Some(Rc::unwrap_or_clone(module)));
+        let this = Self { instructions: jit_instructions, context };
         Ok(this)
     }
 
     pub fn generate_function<'ctx>(&self, ir: &ObjectRef, function_type: &FunctionType) -> Result<(Module<'ctx>, FunctionValue<'ctx>)> {
-        let context: &'static Context = unsafe { self._context.context() };
+        let context: &'static Context = unsafe { self.context.context() };
         let module = context.create_module("jit_function_");
         let usize_type = context.custom_width_int_type(usize::BITS);
         let mut regs = HashMap::<(u16, Type), PointerValue<'ctx>>::new();
@@ -192,6 +200,7 @@ impl RawJITCompiler {
             }
             finished_task.insert(block_start);
             let block = blocks.get(&block_start).unwrap();
+            ip = block_start;
             builder.position_at_end(block.llvm_block);
             while ip < ir_buffer.len() {
                 let opcode = match opcode_size {
@@ -232,7 +241,7 @@ impl RawJITCompiler {
                             let offset: i32 = unsafe {
                                 ir_buffer.try_get(constant_start + constant_offset).ok_or_else(|| OffsetOutOfBound(constant_start + constant_offset))?
                             };
-                            let target = constant_start + constant_offset + offset as usize;
+                            let target = (constant_start + constant_offset).overflowing_add_signed(offset as isize).0;
                             goto_list.push(target);
                             args.push(usize_type.const_int(target.try_into()?, false).into());
                         }
@@ -296,7 +305,7 @@ impl RawJITCompiler {
                     builder.build_switch(jump_to_value, *else_block, &switch_cases);
                     break;
                 }
-                ip = constant_start + jit_instruction.constant_size + 2 * jit_instruction.operand_types.len();
+                ip = constant_start + ((jit_instruction.constant_size + 1) & (!1)) + 2 * jit_instruction.operand_types.len();
             }
         }
         entry_builder.build_unconditional_branch(first_block);
@@ -339,6 +348,20 @@ impl<S: InstructionSet, M: MemoryInstructionSetProvider> JITCompiler<S, M> {
     pub fn compile(&self, pack: FunctionPack<S>) -> Fallible<ObjectRef> {
         let raw = self.raw().lock().map_err(|_| LockFailed())?;
         let (module, function_value) = raw.generate_function(pack.byte_code(), pack.function_type())?;
+
+        module.link_in_module(raw.root_module()?.clone()).map_err(|e| OtherError(format_err!("llvm error:{}", e)))?;
+        let pass_manager_builder = PassManagerBuilder::create();
+        pass_manager_builder.set_optimization_level(inkwell::OptimizationLevel::Aggressive);
+        let pass_manager = PassManager::create(());
+        pass_manager.add_function_inlining_pass();
+        pass_manager.run_on(&module);
+        pass_manager_builder.populate_module_pass_manager(&pass_manager);
+        pass_manager.run_on(&module);
+        module.verify().map_err(|e| {
+            dbg!(module.print_to_string());
+            LLVMVerifyFailed(e.to_string())
+        })?;
+
         raw.execution_engine()?.add_module(&module).map_err(|_| AddModuleError())?;
         let function = raw.wrap_function(function_value, pack.output.unwrap_or_default())?;
         Ok(function)

@@ -176,6 +176,27 @@ pub enum Type {
     Native(Layout),
     Function(CowArc<'static, FunctionType>),
 }
+impl Type {
+    pub fn bool() -> Self {
+        Type::Int(IntKind::Bool)
+    }
+
+    pub fn i8() -> Self {
+        Type::Int(IntKind::I8)
+    }
+
+    pub fn i16() -> Self {
+        Type::Int(IntKind::I16)
+    }
+
+    pub fn i32() -> Self {
+        Type::Int(IntKind::I32)
+    }
+
+    pub fn i64() -> Self {
+        Type::Int(IntKind::I64)
+    }
+}
 
 impl Hash for Type {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {

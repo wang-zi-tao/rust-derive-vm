@@ -2,7 +2,7 @@
 #![feature(arc_unwrap_or_clone)]
 #![feature(iterator_try_collect)]
 mod context;
-mod genarator;
+mod generator;
 mod interpreter;
 mod jit;
 mod raw_llvm;

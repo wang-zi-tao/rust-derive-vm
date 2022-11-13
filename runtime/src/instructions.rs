@@ -1,6 +1,6 @@
 use std::borrow::{Borrow, Cow};
 
-use vm_core::Type;
+use vm_core::{IntKind, Type};
 
 use util::{CowArc, CowSlice};
 
@@ -212,7 +212,7 @@ impl InstructionType {
             InstructionType::Bootstrap(b) => format!("{:?}", b),
             InstructionType::Compression(_) => "Compression".to_string(),
             InstructionType::Complex(c) => c.name.to_string(),
-            InstructionType::Stateful(_) => "Stateful".to_string(),
+            InstructionType::Stateful(s) => s.name.to_string(),
         }
     }
 }
@@ -391,11 +391,13 @@ pub struct ComplexInstruction {
 // }
 #[derive(Debug, Clone)]
 pub struct CompressionInstruction {
+    pub name: Cow<'static, str>,
     pub instructions: CowSlice<'static, (usize, InstructionType)>,
     pub instruction_count: usize,
 }
 #[derive(Debug, Clone)]
 pub struct StatefulInstruction {
+    pub name: Cow<'static, str>,
     pub metadata: InstructionMetadata,
     pub boost: Cow<'static, str>,
     pub statuses: CowSlice<'static, State>,
@@ -479,11 +481,7 @@ pub mod bootstrap {
     declare_boostrap_instruction!(MakeSlice);
     impl MakeSlice {
         pub fn emit<'l, S: InstructionSet, T: TypeDeclaration, A: RegisterPool>(
-            builder: &BlockBuilder<'l, S>,
-            token: &mut GhostToken<'l>,
-            arg_elements: &[Register<T, A>],
-            ret_slice: &Register<Slice<T>, A>,
-            array_reg: u16,
+            builder: &BlockBuilder<'l, S>, token: &mut GhostToken<'l>, arg_elements: &[Register<T, A>], ret_slice: &Register<Slice<T>, A>, array_reg: u16,
         ) -> Fallible<()>
         where
             Self: InstructionOf<S>,

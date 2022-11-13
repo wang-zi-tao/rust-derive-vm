@@ -812,6 +812,19 @@ pub struct NegationBinaryInstruction<
 #[derive(Instruction)]
 #[instruction(
     BinaryInstruction->{(i1:LuaValue,i2:LuaValue)->(i2:LuaValue){
+        DoubleSmallInteger:{
+            entry:{
+                %i1c=MoveValue(%i1);
+                %i2c=MoveValue(%i2);
+                %i1_tag=lua_value::GetTag(%i1c);
+                %i2_tag=lua_value::GetTag(%i2c);
+                %i1_integer_value=I64Shr(lua_value::DecodeIntegerUnchecked(%i1c),4);
+                %i2_integer_value=I64Shr(lua_value::DecodeIntegerUnchecked(%i2c),4);
+                if UsizeLt(UsizeOr(%i1_tag,%i2_tag),b::IntTruncate<12,7>(1)) %double_integer %other; },
+            double_integer:{
+                %i2=IntegerInstruction(%i1_integer_value,%i2_integer_value); },
+            other:{  %i2=CallState<%Init>(%i1c,%i2c); },
+        },
         Init:{
             entry:{
                 %i1_tag=lua_value::GetTag(%i1);
@@ -847,19 +860,6 @@ pub struct NegationBinaryInstruction<
                 SetState<%UseMetaMethodOfI2>();
                 %i2=CallFunction2Ret1(%i2_meta_function,%i1,%i2); },
             i2_has_no_meta_function:{ %i2=ConstNil();  ThrowError(); },
-        },
-        DoubleSmallInteger:{
-            entry:{
-                %i1c=MoveValue(%i1);
-                %i2c=MoveValue(%i2);
-                %i1_tag=lua_value::GetTag(%i1c);
-                %i2_tag=lua_value::GetTag(%i2c);
-                %i1_integer_value=I64Shr(lua_value::DecodeIntegerUnchecked(%i1c),4);
-                %i2_integer_value=I64Shr(lua_value::DecodeIntegerUnchecked(%i2c),4);
-                if UsizeLt(UsizeOr(%i1_tag,%i2_tag),b::IntTruncate<12,7>(1)) %double_integer %other; },
-            double_integer:{
-                %i2=IntegerInstruction(%i1_integer_value,%i2_integer_value); },
-            other:{  %i2=CallState<%Init>(%i1c,%i2c); },
         },
         DoubleInteger:{
             entry:{

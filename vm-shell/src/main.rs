@@ -27,6 +27,7 @@ lazy_static! {
 }
 
 fn main() -> Fallible<()> {
+    vm_lua::util::set_signal_handler();
     env_logger::init();
     let opt = cli::Opt::from_args();
     let lua_runtime: LuaRuntime = if opt.jit { Arc::new(LuaJIT::new()?) } else { Arc::new(LuaInterpreter::new()?) };
@@ -39,7 +40,7 @@ fn main() -> Fallible<()> {
         let run = || {
             let bench = opt.bench;
             let resource = match &*opt.language {
-                "lua" => vm_lua::load_code(lua_state.clone(), &code).unwrap(),
+                "lua" => vm_lua::load_code(lua_state.clone(), &code)?,
                 "wenyan" => vm_wenyan::加载代码(lua_state.clone(), &code)?,
                 o => {
                     panic!("unsupport language {}", o);

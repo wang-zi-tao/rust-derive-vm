@@ -556,11 +556,13 @@ impl InstructionDeclaration {
                 let boost = state_machine.state_list.first().ok_or_else(|| Error::new(state_machine.wrap.span, "no state found"))?.name.to_string();
                 let stateful_instruction_name = name.into_token_stream().to_string();
                 let state_body = state_machine.generate(&metadata.generics, config, &instruction_metadata, &stateful_instruction_name)?;
+                let instruction_name = name.into_token_stream().to_string();
                 let instruction_type = quote! {
                       runtime::instructions::InstructionType::Stateful(
                         runtime::_util::CowArc::Ref(
                           runtime::_util::inline_const!(#impl_generics[&'static runtime::instructions::StatefulInstruction]
                             &runtime::instructions::StatefulInstruction{
+                              name: std::borrow::Cow::Borrowed(&#instruction_name),
                               metadata: #instruction_metadata,
                               boost: std::borrow::Cow::Borrowed(&#boost),
                               statuses: #state_body,
@@ -923,11 +925,7 @@ impl StatDeclaration {
 }
 impl FunctionCall {
     fn generate_into(
-        &self,
-        target: &mut Vec<TokenStream2>,
-        context: &mut FunctionBobyContext,
-        rets: &Vec<String>,
-        config: &BuildInstructionConfig,
+        &self, target: &mut Vec<TokenStream2>, context: &mut FunctionBobyContext, rets: &Vec<String>, config: &BuildInstructionConfig,
     ) -> Result<()> {
         let impl_generics = &config.impl_generics;
         let mut args = Vec::new();
@@ -967,11 +965,7 @@ impl FunctionCall {
 }
 impl ExprDeclaration {
     fn generate_into(
-        &self,
-        instructions: &mut Vec<TokenStream2>,
-        context: &mut FunctionBobyContext,
-        rets: &Vec<String>,
-        config: &BuildInstructionConfig,
+        &self, instructions: &mut Vec<TokenStream2>, context: &mut FunctionBobyContext, rets: &Vec<String>, config: &BuildInstructionConfig,
     ) -> Result<String> {
         match self {
             Self::Call(call) => {
@@ -1105,11 +1099,7 @@ impl GenericcArgumentsDeclaration {
 }
 impl StateMachineDeclaration {
     fn generate(
-        &self,
-        generics: &[GenericsDeclaration],
-        config: &BuildInstructionConfig,
-        metadata: &TokenStream2,
-        stateful_instruction_name: &str,
+        &self, generics: &[GenericsDeclaration], config: &BuildInstructionConfig, metadata: &TokenStream2, stateful_instruction_name: &str,
     ) -> Result<TokenStream2> {
         let impl_generics = &config.impl_generics;
         let mut states = Vec::new();
@@ -1127,11 +1117,7 @@ impl StateMachineDeclaration {
 }
 impl StateDeclaration {
     fn generate(
-        &self,
-        generics: &[GenericsDeclaration],
-        config: &BuildInstructionConfig,
-        metadata: &TokenStream2,
-        stateful_instruction_name: &str,
+        &self, generics: &[GenericsDeclaration], config: &BuildInstructionConfig, metadata: &TokenStream2, stateful_instruction_name: &str,
     ) -> Result<TokenStream2> {
         let name = self.name.to_string();
         let function_boby = self.inner.generate(generics, config)?;

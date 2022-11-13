@@ -13,6 +13,7 @@ use std::{
 
 use failure::{format_err, Error, Fail, Fallible};
 use inkwell::{
+    attributes::{Attribute, AttributeLoc},
     basic_block::BasicBlock,
     builder::Builder,
     context::Context,
@@ -517,7 +518,7 @@ pub(crate) fn convert_memory_instruciton_operands<'ctx>(
     global.set_constant(true);
     global.set_unnamed_addr(true);
     ty.try_map(|ty| {
-        global_ref.symbol_maps.insert(global, CowArc::into_raw(ty.clone()).cast());
+        global_ref.symbol_maps.insert(global.get_name().to_str()?.to_owned(), CowArc::into_raw(ty.clone()).cast());
         Ok(())
     })?;
     new_operands.push(Operand::Value(
@@ -608,7 +609,7 @@ pub(crate) struct LLVMBasicBlockBuilder<'ctx> {
 }
 #[derive(Clone, Debug)]
 pub(crate) struct GlobalBuilder<'ctx> {
-    pub(crate) symbol_maps: HashMap<GlobalValue<'ctx>, *const u8>,
+    pub(crate) symbol_maps: HashMap<String, *const u8>,
     pub(crate) module: Rc<Module<'ctx>>,
     pub(crate) context: &'ctx Context,
     pub(crate) memory_instruction_set: MemoryInstructionSet,
@@ -2372,6 +2373,18 @@ impl<'ctx, 'm> LLVMFunctionBuilder<'ctx> {
             };
             jit_constants.push(jit_constant);
         }
+        // if let Some(stateful) = state_instruction_type {
+        //     let state_type_bytes = match stateful.statuses.len() {
+        //         0 => unreachable!(),
+        //         1..=0xff => 1,
+        //         0x100..=0xffff => 2,
+        //         0x10000..=0xffffffff => 4,
+        //         _ => 8,
+        //     };
+        //     let layout = &mut constant_layout;
+        //     let (new_layout, _offset) = layout.extend(Layout::from_size_align(state_type_bytes, state_type_bytes)?)?;
+        //     *layout = new_layout;
+        // };
         let mut operand_offset_list = Vec::new();
         let mut operand_types = Vec::new();
         let constant_size = constant_layout.size();
@@ -2383,22 +2396,10 @@ impl<'ctx, 'm> LLVMFunctionBuilder<'ctx> {
             operand_types.push(operand_metadata.value_type.clone());
             args.push(llvm_type.ptr_type(AddressSpace::Local).into());
         }
-        if let Some(stateful) = state_instruction_type {
-            let state_type_bytes = match stateful.statuses.len() {
-                0 => unreachable!(),
-                1..=0xff => 1,
-                0x100..=0xffff => 2,
-                0x10000..=0xffffffff => 4,
-                _ => 8,
-            };
-            let layout = &mut constant_layout;
-            let (new_layout, _offset) = layout.extend(Layout::from_size_align(state_type_bytes, state_type_bytes)?)?;
-            *layout = new_layout;
-            args.push(context.custom_width_int_type(8 * state_type_bytes as u32).ptr_type(AddressSpace::Local).into());
-        }
         let function_type = usize_type.fn_type(&args, false);
         let function = module.add_function(name, function_type, None);
         function.set_call_conventions(8); // fastcc
+        function.add_attribute(AttributeLoc::Function, context.create_enum_attribute(Attribute::get_named_enum_kind_id("alwaysinline"), 1));
         let basic_block = context.append_basic_block(function, "entry");
         let builder = context.create_builder();
         builder.position_at_end(basic_block);
@@ -2417,8 +2418,8 @@ impl<'ctx, 'm> LLVMFunctionBuilder<'ctx> {
                     constant_list.push(constant);
                 }
                 JITConstantKind::BasicBlock(_offset) => {
-                    let offset = function.get_nth_param(arg_index as u32).unwrap().into_int_value();
-                    let constant = Constant::BasicBlock(TargetBlock::IR(offset));
+                    let target_ip = function.get_nth_param(arg_index as u32).unwrap().into_int_value();
+                    let constant = Constant::BasicBlock(TargetBlock::IR(target_ip));
                     constant_list.push(constant);
                 }
                 JITConstantKind::State => todo!(),
@@ -2444,6 +2445,7 @@ impl<'ctx, 'm> LLVMFunctionBuilder<'ctx> {
         let exit = context.append_basic_block(function, "exit");
         let exit_block_builder = context.create_builder();
         exit_block_builder.position_at_end(exit);
+        let ip_phi = exit_block_builder.build_phi(context.i64_type(), "ip");
         let mut this = LLVMFunctionBuilder {
             context,
             builder,
@@ -2457,7 +2459,7 @@ impl<'ctx, 'm> LLVMFunctionBuilder<'ctx> {
             state_stack: Default::default(),
             exit,
             returned: false,
-            ip_phi: None,
+            ip_phi: Some(ip_phi),
         };
         if let Some(stateful) = state_instruction_type {
             this.state_stack
@@ -2471,13 +2473,15 @@ impl<'ctx, 'm> LLVMFunctionBuilder<'ctx> {
         }
         if !this.termined {
             this.builder.build_unconditional_branch(exit);
+            ip_phi.add_incoming(&[(&usize_type.const_zero(), this.builder.get_insert_block().unwrap())]);
             this.builder.clear_insertion_position();
         }
         if !this.returned {
             let builder = exit_block_builder;
+            builder.build_store(function.get_first_param().unwrap().into_pointer_value(), ip_phi.as_basic_value());
             builder.build_return(Some(&usize_type.const_zero()));
         } else {
-            exit_block_builder.build_unreachable();
+            let _result = exit.remove_from_function();
         }
         let jit_instrcution = JITInstruction {
             function_name: function.get_name().to_str().unwrap().into(),
@@ -2512,7 +2516,7 @@ impl<'ctx, 'm> LLVMFunctionBuilder<'ctx> {
                         .map_err(|e| ErrorWhileGenerateInstruction(start + index, Box::new(e)))?;
                         function_value_list.push(function_value);
                         if !function_value.verify(true) {
-                            return Err(LLVMVerifyFailed(jit_instruction.function_name.to_string()));
+                            return Err(LLVMVerifyFailed(function_value.print_to_string().to_string()));
                         };
                         jit_instructions.push(jit_instruction);
                     }
@@ -2523,7 +2527,7 @@ impl<'ctx, 'm> LLVMFunctionBuilder<'ctx> {
                             .map_err(|e| ErrorWhileGenerateInstruction(index, Box::new(e)))?;
                     function_value_list.push(function_value);
                     if !function_value.verify(true) {
-                        return Err(LLVMVerifyFailed(jit_instruction.function_name.to_string()));
+                        return Err(LLVMVerifyFailed(function_value.print_to_string().to_string()));
                     };
                     jit_instructions.push(jit_instruction);
                 }
@@ -2535,10 +2539,9 @@ impl<'ctx, 'm> LLVMFunctionBuilder<'ctx> {
         let module = &global.borrow().module;
         let pass_manager_builder = PassManagerBuilder::create();
         pass_manager_builder.set_optimization_level(inkwell::OptimizationLevel::Aggressive);
-        let pass_manager = PassManager::create(&**module);
-        for jit_instruction in function_value_list {
-            pass_manager.run_on(&jit_instruction);
-        }
+        let pass_manager = PassManager::create(());
+        pass_manager_builder.populate_module_pass_manager(&pass_manager);
+        pass_manager.run_on(&**module);
         Ok(jit_instructions)
     }
 
@@ -2567,14 +2570,14 @@ impl<'ctx, 'm> LLVMFunctionBuilder<'ctx> {
                 }
                 block
             }
-            TargetBlock::IR(offset) => {
+            TargetBlock::IR(ip) => {
                 let block = context.append_basic_block(self.function, "branch");
                 let branch_builder = context.create_builder();
                 branch_builder.position_at_end(block);
                 branch_builder.build_unconditional_branch(self.exit);
                 builder.clear_insertion_position();
                 if let Some(ip_phi) = self.ip_phi.as_ref() {
-                    ip_phi.add_incoming(&[(&offset, block)]);
+                    ip_phi.add_incoming(&[(&ip, block)]);
                 }
                 block
             }

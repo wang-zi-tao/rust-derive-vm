@@ -26,6 +26,18 @@ fn run_lua_script() -> Fallible<()> {
     };
     Ok(())
 }
+#[test]
+fn run_lua_script_in_jit() -> Fallible<()> {
+    env_logger::init();
+    set_signal_handler();
+    let state = vm_lua::new_state(Arc::new(LuaJIT::new()?))?;
+    let code = "a=1+1 print(a)";
+    if let Err(e) = vm_lua::run_code(state, code) {
+        println!("{:?}", &e);
+        return Err(e);
+    };
+    Ok(())
+}
 // #[test]
 fn run_scipts_in_tests_dir() -> Fallible<()> {
     env_logger::init();
